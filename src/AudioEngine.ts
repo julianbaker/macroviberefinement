@@ -19,6 +19,34 @@ const PRELOAD_CONCURRENCY = 8;
 // Gate blocks until all 64 partials are decoded; full audio upgrades in background.
 const PARTIAL_BYTES = 524287;
 
+// Retry a fetch on transient failures (network errors, 429, 5xx).
+// 4xx errors other than 429 are not retried (URL expired / bad request).
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  maxRetries = 3,
+  baseDelayMs = 800,
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise<void>((r) => setTimeout(r, baseDelayMs * 2 ** (attempt - 1)));
+    }
+    try {
+      const res = await fetch(url, options);
+      // Retry on rate-limiting or server errors; accept everything else as-is
+      if (res.status === 429 || res.status >= 500) {
+        lastErr = new Error(`HTTP ${res.status}`);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 export class AudioEngine {
   private ctx: AudioContext;
   private buffers = new Map<string, AudioBuffer>();
@@ -60,13 +88,18 @@ export class AudioEngine {
     let loaded = 0;
 
     // ── Phase 1 (gate blocks): partial fetch, first 512 KB per track ─────────
+    // Retries: 2 attempts with 800 ms / 1.6 s back-off to stay gate-friendly.
     const loadPartial = async (track: TrackMeta): Promise<void> => {
       let decoded = false;
+
+      // Attempt A: Range request with retry
       try {
-        const res = await fetch(track.streamUrl!, {
-          headers: { Range: `bytes=0-${PARTIAL_BYTES}` },
-        });
-        // Accept 206 Partial or 200 (server ignored Range header)
+        const res = await fetchWithRetry(
+          track.streamUrl!,
+          { headers: { Range: `bytes=0-${PARTIAL_BYTES}` } },
+          2,    // max retries
+          800,  // base delay ms
+        );
         if (res.status === 206 || res.status === 200) {
           const ab = await res.arrayBuffer();
           const buffer = await this.ctx.decodeAudioData(ab);
@@ -74,19 +107,19 @@ export class AudioEngine {
           decoded = true;
         }
       } catch {
-        // Partial decode failed — fall through to full fetch below
+        // Range request exhausted retries — fall through to full fetch
       }
 
-      // Fallback: full fetch if partial decode rejected
+      // Attempt B: full fetch with retry (handles Range-unsupported servers too)
       if (!decoded) {
         try {
-          const res = await fetch(track.streamUrl!);
+          const res = await fetchWithRetry(track.streamUrl!, undefined, 2, 800);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const ab = await res.arrayBuffer();
           const buffer = await this.ctx.decodeAudioData(ab);
           this.buffers.set(track.trackId, buffer);
         } catch {
-          // Genuinely unavailable — hover will be silent for this cell only
+          // All retries exhausted — hover will be silent for this cell only
         }
       }
 
@@ -118,7 +151,7 @@ export class AudioEngine {
         let item: TrackMeta | undefined;
         while ((item = upgradeQueue.shift()) !== undefined) {
           try {
-            const res = await fetch(item.streamUrl!);
+            const res = await fetchWithRetry(item.streamUrl!, undefined, 3, 1000);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const ab = await res.arrayBuffer();
             const buffer = await this.ctx.decodeAudioData(ab);
