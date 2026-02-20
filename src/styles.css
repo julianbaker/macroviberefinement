@@ -111,6 +111,7 @@ body {
   font-weight: 600;
 }
 
+
 .title-lockup {
   min-width: 0;
   flex: 1 1 auto;
@@ -917,6 +918,20 @@ body {
 .gate-lockup {
   position: absolute;
   inset: 0;
+}
+
+/* Logo in the upper portion of the gate screen.
+   Mirrors the canvas position: centred in the space above the button. */
+.gate-logo {
+  position: absolute;
+  /* Mirrors canvas: logoTopY = (cy - 26 - logoH) * 0.45, centre at ~28% height */
+  top: 28%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(220px, 40%);
+  height: auto;
+  filter: invert(1) opacity(0.88);
+  pointer-events: none;
 }
 
 .gate-error {

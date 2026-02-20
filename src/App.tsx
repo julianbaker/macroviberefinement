@@ -5,6 +5,7 @@ import { AudioEngine } from "./AudioEngine";
 import type { TrackMeta } from "./AudioEngine";
 import { api } from "./api";
 import type { SessionInitResponse, SessionTrack } from "./api";
+import logoUrl from "./assets/MVRLogo.svg?url";
 
 const BIN_CODES = ["VELLUM", "BRINE", "HEAT", "STATIC", "HALO", "GRIT"] as const;
 const BIN_METERS = [26, 53, 47, 64, 16, 38] as const;
@@ -1030,6 +1031,7 @@ export function App({ navigate }: { navigate: (r: Route) => void }) {
         >
           {audioPhase === "locked" ? (
             <div className="gate-lockup">
+              <img src={logoUrl} className="gate-logo" alt="MacroVibe Refinement" aria-hidden="true" />
               {sessionInitError && (
                 <p className="gate-error">ERROR: {sessionInitError}</p>
               )}

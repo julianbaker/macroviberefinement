@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import logoUrl from "./assets/MVRLogo.svg?url";
 
 export type SurfaceCellRender = {
   id: number;
@@ -256,7 +257,22 @@ const drawBackground = (
     ctx.fillStyle = i % 2 === 0 ? "rgba(5,16,33,0.92)" : "rgba(5,16,33,0.76)";
     ctx.fillRect(i * colW, 0, colW + 1, frameHeight);
   }
+};
 
+// Logo aspect: 1197 × 625 (natural SVG dimensions)
+const LOGO_ASPECT = 1197 / 625;
+
+// Draw the pre-colorized logo canvas centred horizontally at the given top-Y.
+const drawLogo = (
+  ctx: CanvasRenderingContext2D,
+  logoCanvas: HTMLCanvasElement | null,
+  cx: number,
+  topY: number,
+  desiredWidth: number,
+) => {
+  if (!logoCanvas) return;
+  const h = desiredWidth / LOGO_ASPECT;
+  ctx.drawImage(logoCanvas, cx - desiredWidth * 0.5, topY, desiredWidth, h);
 };
 
 // ── Gate (locked) screen ──────────────────────────────────────────────────────
@@ -265,6 +281,7 @@ const drawGateScreen = (
   frameWidth: number,
   frameHeight: number,
   sessionInitError: string | null,
+  logoCanvas: HTMLCanvasElement | null,
 ) => {
   drawBackground(ctx, frameWidth, frameHeight);
 
@@ -272,6 +289,13 @@ const drawGateScreen = (
   const cy = frameHeight * 0.5;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+
+  // Logo — upper portion of the screen, above the button
+  const logoW = Math.min(260, frameWidth * 0.42);
+  const logoH = logoW / LOGO_ASPECT;
+  // Centre the logo in the space between top edge and the button (cy - 26 = btnTop)
+  const logoTopY = (cy - 26 - logoH) * 0.45;
+  drawLogo(ctx, logoCanvas, cx, logoTopY, logoW);
 
   // Error sits 58px above centre — button is always at cy regardless
   if (sessionInitError) {
@@ -307,12 +331,20 @@ const drawPreloadScreen = (
   frameHeight: number,
   loaded: number,
   total: number,
+  logoCanvas: HTMLCanvasElement | null,
 ) => {
   drawBackground(ctx, frameWidth, frameHeight);
 
   const cx = frameWidth * 0.5;
   const cy = frameHeight * 0.5;
   const barW = Math.min(400, frameWidth * 0.54);
+
+  // Logo — same position as gate screen for visual continuity
+  const logoW = Math.min(260, frameWidth * 0.42);
+  const logoH = logoW / LOGO_ASPECT;
+  // Centre in upper space above the label (cy - 30 is label centre)
+  const logoTopY = (cy - 30 - logoH) * 0.45;
+  drawLogo(ctx, logoCanvas, cx, logoTopY, logoW);
   const barH = 12;
   const progress = total > 0 ? loaded / total : 0;
 
@@ -360,6 +392,7 @@ const drawSourceSurface = (
   throwState: SurfaceDragRender | null,
   frameLeft: number,
   frameTop: number,
+  logoCanvas: HTMLCanvasElement | null,
 ) => {
   const pad = 16;
   const headerH = 56;
@@ -383,6 +416,8 @@ const drawSourceSurface = (
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("MacroVibe Refinement", pad, 24);
+
+  void logoCanvas; // unused in refiner view
 
   ctx.font = '600 13px "IBM Plex Mono", monospace';
   ctx.textAlign = "right";
@@ -550,6 +585,26 @@ export function CrtWebglOverlay({
   // Stable draw-override ref — updated every render, no useEffect re-run needed
   const drawContentRef = useRef(drawContent);
   drawContentRef.current = drawContent;
+
+  // Pre-colorized logo canvas — built once on mount, passed into draw functions
+  const logoCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const offCtx = canvas.getContext("2d");
+      if (!offCtx) return;
+      // Draw the black SVG paths, then tint them to the UI accent colour
+      offCtx.drawImage(img, 0, 0);
+      offCtx.globalCompositeOperation = "source-atop";
+      offCtx.fillStyle = "rgba(190,238,255,0.9)";
+      offCtx.fillRect(0, 0, canvas.width, canvas.height);
+      logoCanvasRef.current = canvas;
+    };
+    img.src = logoUrl;
+  }, []);
 
   const latestRef = useRef({
     gridViewport: gridViewport ?? { x: 0, y: 0, width: 0, height: 0 },
@@ -753,7 +808,7 @@ export function CrtWebglOverlay({
           // Built-in dispatch: gate, preloading, or main refine UI
           const phase = latest.audioPhase;
           if (phase === "locked") {
-            drawGateScreen(sourceCtx, frameRect.width, frameRect.height, latest.sessionInitError);
+            drawGateScreen(sourceCtx, frameRect.width, frameRect.height, latest.sessionInitError, logoCanvasRef.current);
           } else if (phase === "preloading") {
             drawPreloadScreen(
               sourceCtx,
@@ -761,6 +816,7 @@ export function CrtWebglOverlay({
               frameRect.height,
               latest.preloadProgress.loaded,
               latest.preloadProgress.total,
+              logoCanvasRef.current,
             );
           } else {
             drawSourceSurface(
@@ -779,6 +835,7 @@ export function CrtWebglOverlay({
               latest.throwState,
               frameRect.left,
               frameRect.top,
+              logoCanvasRef.current,
             );
           }
         }
