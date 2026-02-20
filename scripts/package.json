@@ -1,0 +1,11 @@
+{
+  "name": "macrovibe-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Server-side maintenance scripts — not bundled into the frontend.",
+  "dependencies": {
+    "@audius/sdk": "^11.0.0",
+    "@supabase/supabase-js": "^2.49.1"
+  }
+}

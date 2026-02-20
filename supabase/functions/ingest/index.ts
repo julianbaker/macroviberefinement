@@ -17,6 +17,7 @@ type TrackRow = {
   artist_name: string | null;
   artwork_url: string | null;
   duration_sec: number | null;
+  genre: string | null;
 };
 
 function logEvent(name: string, payload: Record<string, unknown>): void {
@@ -160,6 +161,7 @@ function parseTrackRow(track: unknown): TrackRow | null {
       valueAsString(user?.handle),
     artwork_url: artworkUrl,
     duration_sec: valueAsInteger(trackObj.duration),
+    genre: valueAsString(trackObj.genre),
   };
 }
 

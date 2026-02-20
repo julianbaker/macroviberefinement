@@ -31,6 +31,13 @@ export type RuntimeConfig = {
   requestHashSecret: string;
 };
 
+export type AudiusSyncConfig = RuntimeConfig & {
+  audiusApiKey: string;
+  audiusApiSecret: string;
+  audiusManagedUserId: string;
+  audiusSyncEnabled: boolean;
+};
+
 let cachedConfig: RuntimeConfig | null = null;
 
 export function getRuntimeConfig(): RuntimeConfig {
@@ -56,4 +63,16 @@ export function getRuntimeConfig(): RuntimeConfig {
   };
 
   return cachedConfig;
+}
+
+export function getAudiusSyncConfig(): AudiusSyncConfig {
+  const base = getRuntimeConfig();
+  const syncEnabledRaw = (Deno.env.get("AUDIUS_SYNC_ENABLED") ?? "false").toLowerCase();
+  return {
+    ...base,
+    audiusApiKey: required("AUDIUS_API_KEY"),
+    audiusApiSecret: required("AUDIUS_API_SECRET"),
+    audiusManagedUserId: required("AUDIUS_MANAGED_USER_ID"),
+    audiusSyncEnabled: syncEnabledRaw !== "false",
+  };
 }

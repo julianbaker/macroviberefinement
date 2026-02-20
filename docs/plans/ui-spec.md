@@ -14,7 +14,7 @@ Desktop frame (not to scale):
 
 ```text
 +--------------------------------------------------------------+
-| FILE: COLD HARBOUR-17             PROGRESS: 024 / 064        |
+| MacroVibe Refinement             PROGRESS: 024 / 064        |
 +==============================================================+
 |                                                              |
 |   [ ][ ][ ][ ][ ][ ][ ][ ]                                  |
@@ -45,15 +45,25 @@ Desktop frame (not to scale):
 - “Top in bin” or consensus hints.
 - Social profile identity.
 
-## 5. Visual Tokens
-- `--bg-main: #07110d`
-- `--bg-panel: #0c1a15`
-- `--line: #274137`
-- `--text-main: #c7dfcd`
-- `--text-dim: #7ea08d`
-- `--accent-positive: #7bcf9a`
-- `--accent-secondary: #a6c4b0`
-- `--accent-warning: #c0a96e`
+## 5. Visual Tokens (Palette Lock)
+Reference source of truth:
+- `epassi/lumon-macrodata-refiner` `src/util.js`
+- `epassi/lumon-macrodata-refiner` `src/index.css`
+
+Locked primary palette:
+- `--color-on: #BEEEFF`
+- `--color-off: #051021`
+
+Locked category accents:
+- `--color-wo: #77DB70`
+- `--color-fc: #F1EB5A`
+- `--color-dr: #FE7BD9`
+- `--color-ma: #1A3DF5`
+
+Theme constraints:
+- Do not introduce alternate base palette values without explicit PM approval.
+- Do not shift hue family toward custom green/olive themes.
+- Any non-locked accent must be documented and approved before implementation.
 
 Typography:
 - body/system: monospace terminal stack
@@ -80,6 +90,7 @@ Implementation guidance:
 - Preferred baseline: CSS overlay + SVG filter (no heavy dependencies).
 - Progressive enhancement: canvas/WebGL distortion if stable and performant.
 - Fallback mode on low-end devices: scanlines + vignette, disable distortion/flicker.
+- If WebGL/canvas path fails, refine UI must remain visible and interactive via DOM rendering.
 
 ## 6. Cell Behavior
 ### 6.1 Identity
@@ -136,15 +147,32 @@ Easing:
 
 ### 10.2 Hover Audio
 - On hover/focus:
-  - seek to virtual playhead position
-  - gain ramp up ~`90ms`
+  - seek to track position derived from session-global playhead
+  - gain ramp up target `90-140ms`
 - On blur/out:
-  - gain ramp down ~`120ms`
+  - gain ramp down target `120-180ms`
+- Hover transition between cells:
+  - outgoing hover fades out while incoming hover fades in
+  - brief overlap is expected during fast movement
+  - no hard cut from one cell to the next
 
-### 10.3 Engine Constraints
+### 10.3 Session-Global Virtual Playhead
+- Start a monotonic session timer when refinement session initializes.
+- For each track with known duration:
+  - `positionSeconds = elapsedSessionSeconds % trackDurationSeconds`
+- Hover behavior:
+  - entering a cell seeks to `positionSeconds` for that track, then ramps gain in.
+  - re-hover resumes at the current modulo position, not at `0`.
+- Perceived behavior target:
+  - all tracks feel continuously running in background time.
+  - different track durations naturally desynchronize and loop independently.
+
+### 10.4 Engine Constraints
 - Decoder pool target: 8
 - Config range: 6 to 12
-- Loop window default: 12s (range 10-18s)
+- Concurrent hover voices:
+  - target 2 (outgoing + incoming) for controlled overlap
+  - clamp max active hover voices to avoid gain pileup
 
 ## 11. Mobile Adaptation
 - 30 cells instead of 64.
@@ -183,6 +211,7 @@ Easing:
 - No metadata in refine cells.
 - Lens and placement motion behaviors match timing targets.
 - Bin shelf interaction feedback present.
-- Audio unlock and hover ramps behave as specified.
+- Audio unlock and hover behavior match spec, including crossfade overlap.
+- Re-hover does not restart at track start; modulo timeline behavior is preserved.
 - Mobile behavior works without hover dependence.
 - CRT stack is visibly present in refine mode (scanlines + corner treatment minimum).

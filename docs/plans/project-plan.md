@@ -54,6 +54,11 @@ Key intent preserved:
   - scanlines
   - corner vignette/distortion
   - subtle CRT flicker/noise
+- Color system is locked to the reference palette:
+  - `#BEEEFF` (on)
+  - `#051021` (off)
+  - `#77DB70`, `#F1EB5A`, `#FE7BD9`, `#1A3DF5` (category accents)
+- No custom palette reinterpretation without explicit PM approval.
 - Refine mode must never display title/artist/genre/popularity.
 
 ## 6. Experience Separation Rules
@@ -296,6 +301,9 @@ Retention:
 
 ### M2
 - refine UI + CRT + audio unlock + placement flow
+- current FE gate before full audio phase:
+  - WebGL fallback must preserve visible/interactive DOM UI when WebGL fails
+  - concise Phase 2 checklist required (motion capture not required)
 
 ### M3
 - archive views + anti-abuse tuning + observability
@@ -311,7 +319,7 @@ Retention:
   - scope summary
   - changed endpoints/schemas
   - test evidence
-  - screenshots or short capture for UI changes
+  - lightweight UI evidence (checklist plus still screenshot when needed)
 - Required checks before merge:
   - FE: lint, typecheck, tests, build
   - BE: lint/tests, migration smoke, endpoint contract tests

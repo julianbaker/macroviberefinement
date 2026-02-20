@@ -1,5 +1,13 @@
 # MacroVibe Refinement - Frontend Restart Plan
 
+## 0. Current State (CTO)
+1. Phase 0 approved.
+2. Phase 1 approved, including locked palette parity.
+3. Phase 2 is functionally close but not fully closed.
+4. Remaining Phase 2 gate items:
+   - WebGL failure fallback must keep refine UI visible and interactive.
+   - Submit concise Phase 2 checklist (no motion capture requirement).
+
 ## 1. Mission
 Rebuild the frontend from zero using a strict reference-first process.  
 Primary success criterion is MDR-style visual and interaction fidelity, then backend contract integration.
@@ -20,6 +28,10 @@ Read in this exact order before writing code:
 4. No metadata in refine mode.
 5. One intentional interaction drift only:
    - single-item drag and drop to bins (instead of keyboard binning-first workflow).
+6. Reference color palette is locked:
+   - base on/off: `#BEEEFF` and `#051021`
+   - accents: `#77DB70`, `#F1EB5A`, `#FE7BD9`, `#1A3DF5`
+   - no custom theme substitutions without explicit PM approval.
 
 ## 4. Required UX Outcomes
 1. First-glance visual read feels MDR-like.
@@ -45,9 +57,14 @@ Read in this exact order before writing code:
 ### 5.3 Hover Audio
 1. Audio starts on hover after unlock gate.
 2. Audio stops when pointer leaves refine area.
-3. Audio continuity:
-   - re-hover should continue from virtual playhead, not restart from beginning.
-4. Drag state must not introduce audible regressions.
+3. Crossfade behavior is required:
+   - hovered-in item fades in while hovered-out item fades out.
+   - brief overlap is expected during fast pointer movement.
+4. Session-global virtual playhead is required:
+   - timer starts at session initialization.
+   - track position on hover = `elapsedSessionTime % trackDuration`.
+   - track must not restart at `0` on each hover.
+5. Drag state must not introduce audible regressions.
 
 ### 5.4 Preload and Start Gate
 1. Before user can begin refining, preload the session audio set.
@@ -81,10 +98,12 @@ Deliver:
 1. Refine layout and typography parity.
 2. Bucket visual structure parity.
 3. CRT stack parity baseline.
+4. Color-token parity against reference palette lock.
 
 Gate:
 1. Side-by-side stills vs reference.
 2. Explicit pass/fail checklist per section.
+3. Color audit table proving token/value parity.
 
 ### Phase 2 - Motion and Interaction Parity
 Deliver:
@@ -94,21 +113,30 @@ Deliver:
 4. Drag/drop adaptation integrated.
 
 Gate:
-1. Side-by-side motion captures.
-2. Parity checklist with zero critical deltas.
+1. WebGL fallback gate:
+   - if WebGL is unavailable or fails, DOM refine UI remains visible and fully interactive.
+2. Concise parity checklist with zero critical deltas.
 
 ### Phase 3 - Audio Behavior Parity
 Deliver:
 1. Unlock gate.
 2. Preload state and progress bar.
-3. Hover playback continuity.
-4. Strict leave-area stop behavior.
+3. Hover crossfade behavior:
+   - in: gain ramp up
+   - out: gain ramp down
+   - controlled overlap between outgoing and incoming hovers.
+4. Session-global virtual playhead behavior:
+   - monotonic elapsed time from session init
+   - per-track modulo playback position
+   - no restart artifacts on re-hover.
+5. Strict leave-area stop behavior.
 
 Gate:
-1. Video proof for:
-   - hover in/out continuity
+1. Audio parity checklist including pass/fail for:
+   - hover in/out crossfade overlap
    - leave-area stop
-   - no restart artifact on re-hover.
+   - no restart artifact on re-hover
+   - modulo timeline behavior on mixed-duration tracks.
 
 ### Phase 4 - Contract Integration
 Deliver:
@@ -152,8 +180,9 @@ Required status handling:
    - reference behavior
    - implemented behavior
    - status: pass/fail
-2. Visual evidence:
-   - side-by-side images or motion clips
+2. Lightweight evidence:
+   - still image(s) only when needed for UI parity
+   - no mandatory motion clips/video
 3. Delta log:
    - remaining gaps
    - rationale
@@ -163,7 +192,9 @@ Required status handling:
 1. MDR-like first glance in refine mode.
 2. Buckets are mechanically believable and aligned.
 3. CRT is visible and readable.
-4. Hover audio behavior matches requirements exactly.
+4. Hover audio behavior matches requirements exactly:
+   - crossfade overlap
+   - global virtual playhead modulo per track duration.
 5. Session, sealing, and completion flow match fixed-file model.
 6. Contract integration passes without schema or endpoint drift.
 7. Refine and archive routes both function correctly.

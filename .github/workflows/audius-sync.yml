@@ -1,0 +1,41 @@
+name: Audius Playlist Sync
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour at :00
+  workflow_dispatch:
+    inputs:
+      setup:
+        description: "Run setup mode — creates the 6 Audius playlists (one-time)"
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    name: Sync bin assignments → Audius playlists
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/package.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Run Audius sync
+        run: node audius-sync.mjs
+        working-directory: scripts
+        env:
+          AUDIUS_API_KEY: ${{ secrets.AUDIUS_API_KEY }}
+          AUDIUS_API_SECRET: ${{ secrets.AUDIUS_API_SECRET }}
+          AUDIUS_MANAGED_USER_ID: ${{ secrets.AUDIUS_MANAGED_USER_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_SETUP: ${{ inputs.setup == true && 'true' || 'false' }}

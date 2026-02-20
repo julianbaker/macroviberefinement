@@ -8,6 +8,7 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "INSUFFICIENT_POOL"
   | "PLACEMENTS_DISABLED"
+  | "SYNC_DISABLED"
   | "NOT_FOUND"
   | "SERVER_ERROR";
 
@@ -21,6 +22,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: "Rate limit exceeded.",
   INSUFFICIENT_POOL: "Not enough active allowlisted tracks.",
   PLACEMENTS_DISABLED: "Placements are currently disabled.",
+  SYNC_DISABLED: "Audius sync is currently disabled.",
   NOT_FOUND: "Endpoint not found.",
   SERVER_ERROR: "Unexpected server error.",
 };
@@ -45,6 +47,7 @@ export function statusForError(code: ErrorCode): number {
       return 429;
     case "INSUFFICIENT_POOL":
     case "PLACEMENTS_DISABLED":
+    case "SYNC_DISABLED":
       return 503;
     case "SERVER_ERROR":
       return 500;
