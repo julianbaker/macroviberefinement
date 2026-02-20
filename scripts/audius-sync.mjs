@@ -130,6 +130,52 @@ async function runSync() {
 
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
 
+    // Evict tracks that have been deleted on Audius
+    // Only check published tracks — those are the ones currently sitting in playlists.
+    const publishedIds = [...published.keys()];
+    const BATCH_SIZE = 10;
+    const deletedOnAudius = new Set();
+
+    for (let i = 0; i < publishedIds.length; i += BATCH_SIZE) {
+      const chunk = publishedIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        chunk.map((id) => audiusSdk.tracks.getTrack({ trackId: id }))
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const trackId = chunk[j];
+        const result = results[j];
+        if (result.status === "fulfilled") {
+          const track = result.value?.data;
+          if (!track || track.isDelete === true) {
+            deletedOnAudius.add(trackId);
+            logEvent("audius_track_deleted_on_platform", { trackId });
+          }
+        } else {
+          // Transient API error — don't assume deleted, just log
+          logEvent("audius_track_status_unknown", { trackId, error: result.reason?.message });
+        }
+      }
+    }
+
+    // Pull deleted tracks out of desired so the diff sends them to toRemove
+    for (const trackId of deletedOnAudius) {
+      desired.delete(trackId);
+    }
+
+    // Deactivate deleted tracks in Supabase so they stop being served for refinement
+    if (deletedOnAudius.size > 0) {
+      const deletedArr = [...deletedOnAudius];
+      const { error: deactivateError } = await supabase
+        .from("track_pool")
+        .update({ is_active: false })
+        .in("track_id", deletedArr);
+      if (deactivateError) {
+        logEvent("audius_deactivate_fail", { error: deactivateError.message, count: deletedArr.length });
+      } else {
+        logEvent("audius_tracks_deactivated", { count: deletedArr.length });
+      }
+    }
+
     // Compute diff
     const toRemove = [];
     const toAdd = [];
@@ -242,7 +288,7 @@ async function runSync() {
       tracks_added: tracksAdded,
       tracks_removed: tracksRemoved,
       tracks_moved: tracksMoved,
-      metadata: { failedOps, desiredCount: desired.size, publishedCount: published.size },
+      metadata: { failedOps, desiredCount: desired.size, publishedCount: published.size, deletedOnAudius: deletedOnAudius.size },
     });
 
     logEvent("audius_sync_complete", { healthy, tracksAdded, tracksRemoved, tracksMoved, failedOps });
