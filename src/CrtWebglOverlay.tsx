@@ -36,6 +36,7 @@ type CrtWebglOverlayProps = {
   sessionSize?: number;
   activeBin?: number | null;
   pulseBin?: number | null;
+  hoveredBinPlaylist?: number | null;
   dragState?: SurfaceDragLiveRender | null;
   throwState?: SurfaceDragRender | null;
   // Gate / preloading state
@@ -319,9 +320,6 @@ const drawGateScreen = (
   ctx.font = '600 18px "IBM Plex Mono", monospace';
   ctx.fillText("BEGIN REFINEMENT", cx, btnY + btnH * 0.5);
 
-  ctx.fillStyle = "rgba(190,238,255,0.42)";
-  ctx.font = '500 14px "IBM Plex Mono", monospace';
-  ctx.fillText("VIEW ARCHIVE", cx, btnY + btnH + 30);
 };
 
 // ── Preloading screen ─────────────────────────────────────────────────────────
@@ -388,6 +386,7 @@ const drawSourceSurface = (
   sessionSize: number,
   binOpenAmounts: readonly number[],
   pulseBin: number | null,
+  hoveredBinPlaylist: number | null,
   dragState: SurfaceDragRender | null,
   throwState: SurfaceDragRender | null,
   frameLeft: number,
@@ -395,9 +394,10 @@ const drawSourceSurface = (
   logoCanvas: HTMLCanvasElement | null,
 ) => {
   const pad = 16;
-  const headerH = 56;
+  const headerH = 80; // matches .frame-header { height: 80px }
   const binsH = 82;
   const statusH = 30;
+  const headerMidY = headerH * 0.5;
 
   drawBackground(ctx, frameWidth, frameHeight);
 
@@ -411,17 +411,21 @@ const drawSourceSurface = (
   ctx.lineTo(frameWidth, frameHeight - statusH + 0.5);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(190,238,255,0.9)";
-  ctx.font = '600 18px "IBM Plex Mono", monospace';
+  // Header — title left, progress far right
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("MacroVibe Refinement", pad, 24);
+
+  ctx.fillStyle = "rgba(190,238,255,0.9)";
+  ctx.font = '600 22px "IBM Plex Mono", monospace';
+  ctx.fillText("MacroVibe Refinement", pad, headerMidY);
 
   void logoCanvas; // unused in refiner view
 
-  ctx.font = '600 13px "IBM Plex Mono", monospace';
+  const progressStr = `PROGRESS: ${String(placedCount).padStart(3, "0")} / ${String(sessionSize).padStart(3, "0")}`;
+  ctx.font = '600 16px "IBM Plex Mono", monospace';
   ctx.textAlign = "right";
-  ctx.fillText(`PROGRESS: ${String(placedCount).padStart(3, "0")} / ${String(sessionSize).padStart(3, "0")}`, frameWidth - pad, 24);
+  ctx.fillStyle = "rgba(190,238,255,0.72)";
+  ctx.fillText(progressStr, frameWidth - pad, headerMidY);
 
   for (const cell of cells) {
     const x = gridViewport.x + cell.x;
@@ -530,6 +534,17 @@ const drawSourceSurface = (
     const fillW = (binW - 2) * (meterValues[i] / 100);
     ctx.fillStyle = `${accent[i % 4]}AA`;
     ctx.fillRect(x + 1, meterY + 1, fillW, meterH - 2);
+
+    // "OPEN" label — drawn on canvas so it's visible through CRT
+    if (hoveredBinPlaylist === i) {
+      ctx.fillStyle = "rgba(5,16,33,0.78)";
+      ctx.fillRect(x + binW - 44, meterY + 1, 42, meterH - 2);
+      ctx.fillStyle = "rgba(190,238,255,0.92)";
+      ctx.font = '600 11px "IBM Plex Mono", monospace';
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText("OPEN", x + binW - 5, meterY + meterH * 0.5);
+    }
   }
 
   const footerY = frameHeight - 10;
@@ -569,6 +584,7 @@ export function CrtWebglOverlay({
   sessionSize,
   activeBin,
   pulseBin,
+  hoveredBinPlaylist,
   dragState,
   throwState,
   audioPhase,
@@ -615,6 +631,7 @@ export function CrtWebglOverlay({
     sessionSize: sessionSize ?? 0,
     activeBin: activeBin ?? null,
     pulseBin: pulseBin ?? null,
+    hoveredBinPlaylist: hoveredBinPlaylist ?? null,
     dragState: dragState ?? null,
     throwState: throwState ?? null,
     audioPhase: audioPhase ?? "ready",
@@ -631,6 +648,7 @@ export function CrtWebglOverlay({
     sessionSize: sessionSize ?? 0,
     activeBin: activeBin ?? null,
     pulseBin: pulseBin ?? null,
+    hoveredBinPlaylist: hoveredBinPlaylist ?? null,
     dragState: dragState ?? null,
     throwState: throwState ?? null,
     audioPhase: audioPhase ?? "ready",
@@ -831,6 +849,7 @@ export function CrtWebglOverlay({
               latest.sessionSize,
               binOpenAmounts,
               latest.pulseBin,
+              latest.hoveredBinPlaylist,
               latest.dragState,
               latest.throwState,
               frameRect.left,

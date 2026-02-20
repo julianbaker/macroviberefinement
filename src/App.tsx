@@ -8,6 +8,15 @@ import type { SessionInitResponse, SessionTrack } from "./api";
 import logoUrl from "./assets/MVRLogo.svg?url";
 
 const BIN_CODES = ["VELLUM", "BRINE", "HEAT", "STATIC", "HALO", "GRIT"] as const;
+
+const BIN_PLAYLIST_URLS: Record<string, string> = {
+  VELLUM: "https://audius.co/MacroVibeRefinement/playlist/vellum",
+  BRINE:  "https://audius.co/MacroVibeRefinement/playlist/brine",
+  HEAT:   "https://audius.co/MacroVibeRefinement/playlist/heat",
+  STATIC: "https://audius.co/MacroVibeRefinement/playlist/static",
+  HALO:   "https://audius.co/MacroVibeRefinement/playlist/halo",
+  GRIT:   "https://audius.co/MacroVibeRefinement/playlist/grit",
+};
 const BIN_METERS = [26, 53, 47, 64, 16, 38] as const;
 const SESSION_SIZE_MAX = 64;
 const THROW_X_MS = 280;
@@ -186,9 +195,7 @@ const getBinFromPoint = (binElements: Array<HTMLElement | null>, clientX: number
   return null;
 };
 
-type Route = { view: "refine" } | { view: "archive" } | { view: "archive-bin"; binCode: string };
-
-export function App({ navigate }: { navigate: (r: Route) => void }) {
+export function App() {
   const headerBars = Array.from({ length: 22 }, (_, idx) => idx);
   const frameRef = useRef<HTMLElement | null>(null);
   const binRefs = useRef<Array<HTMLElement | null>>([]);
@@ -215,6 +222,7 @@ export function App({ navigate }: { navigate: (r: Route) => void }) {
   cellsRef.current = cells;
 
   const [hoveredCellId, setHoveredCellId] = useState<number | null>(null);
+  const [hoveredBinPlaylist, setHoveredBinPlaylist] = useState<number | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [throwState, setThrowState] = useState<ThrowState | null>(null);
   const [placedBins, setPlacedBins] = useState<Record<number, number>>({});
@@ -978,6 +986,16 @@ export function App({ navigate }: { navigate: (r: Route) => void }) {
                     binRefs.current[index] = element;
                   }}
                   className={`bin${isOpen ? " is-open" : ""}${isPulse ? " is-pulse" : ""}`}
+                  onPointerEnter={() => {
+                    if (!isDragging && BIN_PLAYLIST_URLS[code]) setHoveredBinPlaylist(index);
+                  }}
+                  onPointerLeave={() => setHoveredBinPlaylist(null)}
+                  onClick={() => {
+                    if (!isDragging) {
+                      const url = BIN_PLAYLIST_URLS[code];
+                      if (url) window.open(url, "_blank", "noopener noreferrer");
+                    }
+                  }}
                 >
                   <div className="bin-lid" aria-hidden="true">
                     <span className="bin-flap bin-flap-left" />
@@ -1038,7 +1056,6 @@ export function App({ navigate }: { navigate: (r: Route) => void }) {
               <button type="button" className="gate-button" onClick={handleUnlock}>
                 BEGIN REFINEMENT
               </button>
-              <button type="button" className="gate-archive-link" onClick={() => navigate({ view: "archive" })}>VIEW ARCHIVE</button>
             </div>
           ) : (
             <div className="preload-screen">
@@ -1074,6 +1091,7 @@ export function App({ navigate }: { navigate: (r: Route) => void }) {
         sessionSize={sessionSize}
         activeBin={dragState?.overBin ?? null}
         pulseBin={activeBinPulse}
+        hoveredBinPlaylist={hoveredBinPlaylist}
         dragState={dragState}
         throwState={throwState}
         audioPhase={audioPhase}
