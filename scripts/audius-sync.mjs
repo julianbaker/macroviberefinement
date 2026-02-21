@@ -50,6 +50,28 @@ function logEvent(name, payload = {}) {
   console.log(JSON.stringify({ event: name, ts: new Date().toISOString(), ...payload }));
 }
 
+/**
+ * Retry an async operation with exponential backoff.
+ * Attempts: 1 initial + up to maxRetries more.
+ * Delays:   baseDelayMs, baseDelayMs*2, baseDelayMs*4, …
+ */
+async function withRetry(label, fn, { maxRetries = 3, baseDelayMs = 2000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * 2 ** attempt;
+        logEvent("audius_op_retry", { label, attempt: attempt + 1, maxRetries, delayMs: delay, error: err.message });
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 async function runSetup() {
@@ -214,11 +236,13 @@ async function runSync() {
       const playlistId = playlistMap[binCode];
       if (!playlistId) continue;
       try {
-        await audiusSdk.playlists.removeTrackFromPlaylist({
-          userId: config.audiusManagedUserId,
-          playlistId,
-          trackId,
-        });
+        await withRetry(`remove:${trackId}`, () =>
+          audiusSdk.playlists.removeTrackFromPlaylist({
+            userId: config.audiusManagedUserId,
+            playlistId,
+            trackId,
+          })
+        );
         await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
         tracksRemoved++;
       } catch (err) {
@@ -235,11 +259,13 @@ async function runSync() {
 
       let removeOk = false;
       try {
-        await audiusSdk.playlists.removeTrackFromPlaylist({
-          userId: config.audiusManagedUserId,
-          playlistId: oldPlaylistId,
-          trackId,
-        });
+        await withRetry(`move-remove:${trackId}`, () =>
+          audiusSdk.playlists.removeTrackFromPlaylist({
+            userId: config.audiusManagedUserId,
+            playlistId: oldPlaylistId,
+            trackId,
+          })
+        );
         removeOk = true;
       } catch (err) {
         logEvent("audius_track_remove_fail", { trackId, binCode: oldBinCode, error: err.message });
@@ -248,11 +274,13 @@ async function runSync() {
 
       if (removeOk) {
         try {
-          await audiusSdk.playlists.addTrackToPlaylist({
-            userId: config.audiusManagedUserId,
-            playlistId: newPlaylistId,
-            trackId,
-          });
+          await withRetry(`move-add:${trackId}`, () =>
+            audiusSdk.playlists.addTrackToPlaylist({
+              userId: config.audiusManagedUserId,
+              playlistId: newPlaylistId,
+              trackId,
+            })
+          );
           await supabase.from("audius_published_tracks").upsert({
             track_id: trackId,
             bin_code: newBinCode,
@@ -271,11 +299,13 @@ async function runSync() {
       const playlistId = playlistMap[binCode];
       if (!playlistId) continue;
       try {
-        await audiusSdk.playlists.addTrackToPlaylist({
-          userId: config.audiusManagedUserId,
-          playlistId,
-          trackId,
-        });
+        await withRetry(`add:${trackId}`, () =>
+          audiusSdk.playlists.addTrackToPlaylist({
+            userId: config.audiusManagedUserId,
+            playlistId,
+            trackId,
+          })
+        );
         await supabase.from("audius_published_tracks").upsert({
           track_id: trackId,
           bin_code: binCode,
