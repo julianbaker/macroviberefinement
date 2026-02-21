@@ -130,8 +130,9 @@ async function runSync() {
 
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
 
-    // Evict tracks that have been deleted on Audius
+    // Evict tracks that have been deleted on Audius.
     // Only check published tracks — those are the ones currently sitting in playlists.
+    // Uses the REST API directly; the SDK (initialised with write credentials) rejects read calls.
     const publishedIds = [...published.keys()];
     const BATCH_SIZE = 10;
     const deletedOnAudius = new Set();
@@ -139,19 +140,27 @@ async function runSync() {
     for (let i = 0; i < publishedIds.length; i += BATCH_SIZE) {
       const chunk = publishedIds.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
-        chunk.map((id) => audiusSdk.tracks.getTrack({ trackId: id }))
+        chunk.map(async (id) => {
+          const resp = await fetch(
+            `https://api.audius.co/v1/tracks/${encodeURIComponent(id)}?app_name=MacroVibe+Refinement`,
+            { headers: { "X-API-KEY": config.audiusApiKey } }
+          );
+          if (resp.status === 404) return { id, deleted: true };
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const json = await resp.json();
+          return { id, deleted: json?.data?.is_delete === true };
+        })
       );
       for (let j = 0; j < chunk.length; j++) {
         const trackId = chunk[j];
         const result = results[j];
         if (result.status === "fulfilled") {
-          const track = result.value?.data;
-          if (!track || track.isDelete === true) {
+          if (result.value.deleted) {
             deletedOnAudius.add(trackId);
             logEvent("audius_track_deleted_on_platform", { trackId });
           }
         } else {
-          // Transient API error — don't assume deleted, just log
+          // Transient API error — log but don't assume deleted
           logEvent("audius_track_status_unknown", { trackId, error: result.reason?.message });
         }
       }
