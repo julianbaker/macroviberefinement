@@ -235,66 +235,91 @@ async function runSync() {
       toMove: toMove.length,
     });
 
-    // Removals
+    // Evictions (removals + move-froms) — grouped by playlist and applied via updatePlaylist.
+    // removeTrackFromPlaylist requires a positional trackIndex which is fragile and broken for
+    // deleted tracks (which don't appear in the /tracks API response). updatePlaylist with a
+    // full playlistContents array is atomic, handles duplicates, and works for deleted tracks
+    // because we read playlist_contents from the playlist object (not the filtered /tracks endpoint).
+    const evictByBin = new Map(); // binCode -> Set<trackId>
     for (const { trackId, binCode } of toRemove) {
+      (evictByBin.get(binCode) ?? evictByBin.set(binCode, new Set()).get(binCode)).add(trackId);
+    }
+    for (const { trackId, oldBinCode } of toMove) {
+      (evictByBin.get(oldBinCode) ?? evictByBin.set(oldBinCode, new Set()).get(oldBinCode)).add(trackId);
+    }
+
+    const successfullyEvicted = new Set(); // trackIds confirmed evicted on Audius
+
+    for (const [binCode, trackIds] of evictByBin) {
       const playlistId = playlistMap[binCode];
       if (!playlistId) continue;
       try {
-        await withRetry(`remove:${trackId}`, () =>
-          audiusSdk.playlists.removeTrackFromPlaylist({
+        // Fetch raw playlist_contents — includes deleted tracks invisible to /tracks endpoint
+        const resp = await fetch(
+          `https://api.audius.co/v1/playlists/${playlistId}?app_name=MacroVibe+Refinement`,
+          { headers: { "X-API-KEY": config.audiusApiKey } }
+        );
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching playlist ${playlistId}`);
+        const json = await resp.json();
+        const rawContents = json?.data?.[0]?.playlist_contents ?? [];
+
+        // Filter out all occurrences of the tracks being evicted
+        const newContents = rawContents
+          .filter((e) => !trackIds.has(e.track_id))
+          .map((e) => ({ timestamp: e.timestamp, trackId: e.track_id }));
+
+        await withRetry(`updatePlaylist:${binCode}`, () =>
+          audiusSdk.playlists.updatePlaylist({
             userId: config.audiusManagedUserId,
             playlistId,
-            trackId,
+            metadata: { playlistContents: newContents },
           })
         );
-        await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
-        tracksRemoved++;
+
+        for (const trackId of trackIds) successfullyEvicted.add(trackId);
+        logEvent("audius_playlist_evicted", { binCode, count: trackIds.size, newSize: newContents.length });
       } catch (err) {
-        logEvent("audius_track_remove_fail", { trackId, binCode, error: err.message });
-        failedOps++;
+        logEvent("audius_playlist_evict_fail", { binCode, error: err.message });
+        failedOps += trackIds.size;
       }
     }
 
-    // Moves: remove from old, add to new
-    for (const { trackId, oldBinCode, newBinCode } of toMove) {
-      const oldPlaylistId = playlistMap[oldBinCode];
-      const newPlaylistId = playlistMap[newBinCode];
-      if (!oldPlaylistId || !newPlaylistId) continue;
+    // Update Supabase for pure removals that succeeded on Audius
+    for (const { trackId, binCode } of toRemove) {
+      if (successfullyEvicted.has(trackId)) {
+        await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
+        tracksRemoved++;
+      }
+    }
 
-      let removeOk = false;
+    // Moves-in: add to new playlist for tracks that were successfully evicted from the old one
+    for (const { trackId, oldBinCode, newBinCode } of toMove) {
+      if (!successfullyEvicted.has(trackId)) {
+        logEvent("audius_track_move_skip", { trackId, reason: "eviction_failed", oldBinCode, newBinCode });
+        failedOps++;
+        continue;
+      }
+      const newPlaylistId = playlistMap[newBinCode];
+      if (!newPlaylistId) continue;
       try {
-        await withRetry(`move-remove:${trackId}`, () =>
-          audiusSdk.playlists.removeTrackFromPlaylist({
+        await withRetry(`move-add:${trackId}`, () =>
+          audiusSdk.playlists.addTrackToPlaylist({
             userId: config.audiusManagedUserId,
-            playlistId: oldPlaylistId,
+            playlistId: newPlaylistId,
             trackId,
           })
         );
-        removeOk = true;
+        await supabase.from("audius_published_tracks").upsert({
+          track_id: trackId,
+          bin_code: newBinCode,
+          published_at: new Date().toISOString(),
+        });
+        tracksMoved++;
       } catch (err) {
-        logEvent("audius_track_remove_fail", { trackId, binCode: oldBinCode, error: err.message });
+        // Eviction succeeded but add failed — clear published record so next run retries the add
+        await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
+        logEvent("audius_track_add_fail", { trackId, binCode: newBinCode, error: err.message });
         failedOps++;
-      }
-
-      if (removeOk) {
-        try {
-          await withRetry(`move-add:${trackId}`, () =>
-            audiusSdk.playlists.addTrackToPlaylist({
-              userId: config.audiusManagedUserId,
-              playlistId: newPlaylistId,
-              trackId,
-            })
-          );
-          await supabase.from("audius_published_tracks").upsert({
-            track_id: trackId,
-            bin_code: newBinCode,
-            published_at: new Date().toISOString(),
-          });
-          tracksMoved++;
-        } catch (err) {
-          logEvent("audius_track_add_fail", { trackId, binCode: newBinCode, error: err.message });
-          failedOps++;
-        }
       }
     }
 
