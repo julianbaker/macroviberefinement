@@ -152,40 +152,41 @@ async function runSync() {
 
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
 
-    // Evict tracks that have been deleted on Audius.
+    // Evict tracks that have been deleted or unlisted on Audius.
     // Only check published tracks — those are the ones currently sitting in playlists.
     // Uses the REST API directly; the SDK (initialised with write credentials) rejects read calls.
+    // Requests are sequential with a small delay to avoid 429 rate-limiting from api.audius.co.
     const publishedIds = [...published.keys()];
-    const BATCH_SIZE = 10;
     const deletedOnAudius = new Set();
 
-    for (let i = 0; i < publishedIds.length; i += BATCH_SIZE) {
-      const chunk = publishedIds.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        chunk.map(async (id) => {
-          const resp = await fetch(
-            `https://api.audius.co/v1/tracks/${encodeURIComponent(id)}?app_name=MacroVibe+Refinement`,
-            { headers: { "X-API-KEY": config.audiusApiKey } }
-          );
-          if (resp.status === 404) return { id, deleted: true };
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    for (const trackId of publishedIds) {
+      try {
+        const resp = await fetch(
+          `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=MacroVibe+Refinement`,
+          { headers: { "X-API-KEY": config.audiusApiKey } }
+        );
+        if (resp.status === 404) {
+          deletedOnAudius.add(trackId);
+          logEvent("audius_track_deleted_on_platform", { trackId, reason: "404" });
+        } else if (resp.ok) {
           const json = await resp.json();
-          return { id, deleted: json?.data?.is_delete === true };
-        })
-      );
-      for (let j = 0; j < chunk.length; j++) {
-        const trackId = chunk[j];
-        const result = results[j];
-        if (result.status === "fulfilled") {
-          if (result.value.deleted) {
+          const track = json?.data;
+          if (track?.is_delete || track?.is_unlisted || track?.is_available === false) {
             deletedOnAudius.add(trackId);
-            logEvent("audius_track_deleted_on_platform", { trackId });
+            logEvent("audius_track_deleted_on_platform", {
+              trackId,
+              reason: track.is_delete ? "is_delete" : track.is_unlisted ? "is_unlisted" : "unavailable",
+            });
           }
         } else {
-          // Transient API error — log but don't assume deleted
-          logEvent("audius_track_status_unknown", { trackId, error: result.reason?.message });
+          // Transient error (e.g. 429, 5xx) — log but don't assume deleted
+          logEvent("audius_track_status_unknown", { trackId, error: `HTTP ${resp.status}` });
         }
+      } catch (err) {
+        logEvent("audius_track_status_unknown", { trackId, error: err.message });
       }
+      // 150 ms pause keeps us well under the rate limit across 100+ tracks
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     // Pull deleted tracks out of desired so the diff sends them to toRemove
