@@ -32,22 +32,22 @@ type BinArea = {
   height: number;
 };
 
-function getBinAreas(frameWidth: number, frameHeight: number): BinArea[] {
-  const pad = Math.max(14, frameWidth * 0.045);
-  const gapX = 10;
-  const gapY = 10;
+function getBinAreas(frameWidth: number, frameHeight: number, topY?: number): BinArea[] {
+  const pad = Math.max(12, frameWidth * 0.04);
+  const gapX = 8;
+  const gapY = 8;
   const cols = 2;
   const rows = 3;
-  const topY = frameHeight * 0.54;
+  const binTopY = topY ?? frameHeight * 0.52;
   const gridW = frameWidth - pad * 2;
-  const availH = frameHeight - topY - pad;
+  const availH = frameHeight - binTopY - pad;
   const binW = (gridW - gapX * (cols - 1)) / cols;
   const binH = (availH - gapY * (rows - 1)) / rows;
 
   return BIN_CODES.map((code, i) => ({
     code,
     x: pad + (i % cols) * (binW + gapX),
-    y: topY + Math.floor(i / cols) * (binH + gapY),
+    y: binTopY + Math.floor(i / cols) * (binH + gapY),
     width: binW,
     height: binH,
   }));
@@ -106,17 +106,20 @@ export function MobileGate() {
         ctx.fillRect(i * colW, 0, colW + 1, frameHeight);
       }
 
+      // ── Adaptive layout: anchor each section to the previous one's bottom ───
+      // This guarantees nothing overflows regardless of frame height.
+
       // Logo
       const logoCanvas = logoCanvasRef.current;
+      const logoTopY = Math.round(frameHeight * 0.045);
+      const logoW = Math.min(190, frameWidth * 0.5);
+      const logoH = logoW / LOGO_ASPECT;
       if (logoCanvas) {
-        const logoW = Math.min(210, frameWidth * 0.54);
-        const logoH = logoW / LOGO_ASPECT;
-        const logoTopY = frameHeight * 0.07;
         ctx.drawImage(logoCanvas, frameWidth * 0.5 - logoW * 0.5, logoTopY, logoW, logoH);
       }
 
-      // Divider line under logo area
-      const dividerY = frameHeight * 0.26;
+      // Divider line — 14px below logo bottom
+      const dividerY = logoTopY + logoH + 14;
       ctx.strokeStyle = "rgba(190,238,255,0.18)";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -124,12 +127,14 @@ export function MobileGate() {
       ctx.lineTo(frameWidth * 0.92, dividerY);
       ctx.stroke();
 
-      // Message block
+      // Message block — 14px below divider
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const fontSize = Math.max(14, Math.min(17, frameWidth * 0.043));
-      const lineH = Math.round(fontSize * 1.72);
-      const msgStartY = frameHeight * 0.33;
+      // Scale font to leave at least 52% of height for the bin grid
+      const maxMsgAreaH = frameHeight * 0.26;
+      const fontSize = Math.max(12, Math.min(15, maxMsgAreaH / (MESSAGE_LINES.length * 1.75)));
+      const lineH = Math.round(fontSize * 1.75);
+      const msgStartY = dividerY + 14 + fontSize * 0.5;
 
       MESSAGE_LINES.forEach((line, i) => {
         if (!line) return;
@@ -138,9 +143,13 @@ export function MobileGate() {
         ctx.fillText(line, frameWidth * 0.5, msgStartY + i * lineH);
       });
 
-      // Bin grid
+      // Pin bin area 16px below last message line
+      const msgBottomY = msgStartY + (MESSAGE_LINES.length - 1) * lineH + fontSize * 0.5;
+
+      // Bin grid — starts 16px below the last message line
       if (frameWidth === 0 || frameHeight === 0) return;
-      const bins = getBinAreas(frameWidth, frameHeight);
+      const binTopY = msgBottomY + 16;
+      const bins = getBinAreas(frameWidth, frameHeight, binTopY);
 
       bins.forEach(({ code, x, y, width, height }, i) => {
         // Box background + border
@@ -176,10 +185,24 @@ export function MobileGate() {
     [],
   );
 
-  const binAreas =
-    frameSize.width > 0 && frameSize.height > 0
-      ? getBinAreas(frameSize.width, frameSize.height)
-      : [];
+  // Mirror the canvas layout calculation so DOM tap areas align with drawn bins.
+  const binAreas = (() => {
+    const { width: fw, height: fh } = frameSize;
+    if (fw <= 0 || fh <= 0) return [];
+
+    const logoW = Math.min(190, fw * 0.5);
+    const logoH = logoW / LOGO_ASPECT;
+    const logoTopY = Math.round(fh * 0.045);
+    const dividerY = logoTopY + logoH + 14;
+    const maxMsgAreaH = fh * 0.26;
+    const fontSize = Math.max(12, Math.min(15, maxMsgAreaH / (MESSAGE_LINES.length * 1.75)));
+    const lineH = Math.round(fontSize * 1.75);
+    const msgStartY = dividerY + 14 + fontSize * 0.5;
+    const msgBottomY = msgStartY + (MESSAGE_LINES.length - 1) * lineH + fontSize * 0.5;
+    const binTopY = msgBottomY + 16;
+
+    return getBinAreas(fw, fh, binTopY);
+  })();
 
   return (
     <main className="app-shell">
