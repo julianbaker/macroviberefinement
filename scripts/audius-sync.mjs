@@ -153,13 +153,16 @@ async function runSync() {
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
 
     // Evict tracks that have been deleted or unlisted on Audius.
-    // Only check published tracks — those are the ones currently sitting in playlists.
+    // Check both desired AND published tracks:
+    //   - published: catch tracks already in playlists that were deleted after being added
+    //   - desired:   catch tracks deleted on Audius before they've been published, so we
+    //                don't try to re-add them and instead deactivate them in Supabase
     // Uses the REST API directly; the SDK (initialised with write credentials) rejects read calls.
     // Requests are sequential with a small delay to avoid 429 rate-limiting from api.audius.co.
-    const publishedIds = [...published.keys()];
+    const allTrackIds = new Set([...desired.keys(), ...published.keys()]);
     const deletedOnAudius = new Set();
 
-    for (const trackId of publishedIds) {
+    for (const trackId of allTrackIds) {
       try {
         const resp = await fetch(
           `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=MacroVibe+Refinement`,
