@@ -59,7 +59,7 @@ if (previewParam === "alignment") {
   );
 } else {
   // Normal flow
-  const isMobile = window.innerWidth <= 980;
+  const isMobile = window.innerWidth <= 540;
 
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

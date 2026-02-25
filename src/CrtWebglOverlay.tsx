@@ -54,7 +54,8 @@ type CrtWebglOverlayProps = {
   // Custom draw override — when provided, replaces the built-in draw entirely
   drawContent?: (ctx: CanvasRenderingContext2D, frameWidth: number, frameHeight: number) => void;
   onStatusChange?: (status: "initializing" | "ready" | "failed") => void;
-  cursorType?: CursorType;
+  /** Pass a CursorType to show the custom cursor, or null to disable it entirely. */
+  cursorType?: CursorType | null;
 };
 
 export const CRT_CURVATURE = 0.27;
@@ -678,9 +679,10 @@ export function CrtWebglOverlay({
   const drawContentRef = useRef(drawContent);
   drawContentRef.current = drawContent;
 
-  // Mirror cursorType prop into a ref so the rAF loop always reads the latest value
-  const cursorTypeRef = useRef<CursorType>("default");
-  cursorTypeRef.current = cursorType ?? "default";
+  // Mirror cursorType prop into a ref so the rAF loop always reads the latest value.
+  // null means cursor drawing is disabled for this overlay (e.g. MobileGate).
+  const cursorTypeRef = useRef<CursorType | null>("default");
+  cursorTypeRef.current = cursorType === undefined ? "default" : cursorType;
 
   // Mouse position tracking — updated by pointermove, read each source canvas draw
   const mousePosRef = useRef<{ x: number; y: number } | null>(null);
@@ -980,7 +982,10 @@ export function CrtWebglOverlay({
 
         // Draw cursor on top of all content before uploading to WebGL texture
         // so it inherits the full CRT effect (scanlines, bloom, curvature).
-        drawCursor(sourceCtx, mousePosRef.current, cursorTypeRef.current, frameRect, cursorImagesRef.current);
+        // cursorTypeRef.current === null means cursor is disabled for this overlay.
+        if (cursorTypeRef.current !== null) {
+          drawCursor(sourceCtx, mousePosRef.current, cursorTypeRef.current, frameRect, cursorImagesRef.current);
+        }
 
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);

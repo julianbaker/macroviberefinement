@@ -273,6 +273,7 @@ export function MobileGate() {
         frameRef={frameRef}
         drawContent={drawContent}
         onStatusChange={setCrtStatus}
+        cursorType={null}
       />
     </main>
   );
