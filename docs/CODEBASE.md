@@ -11,11 +11,12 @@
 3. [Tech Stack](#3-tech-stack)
 4. [Frontend](#4-frontend)
    - 4.1 [Entry Point](#41-entry-point)
-   - 4.2 [App.tsx — Main Component](#42-apptsx--main-component)
-   - 4.3 [AudioEngine.ts](#43-audioenginets)
-   - 4.4 [CrtWebglOverlay.tsx](#44-crtwebgloverlaytsx)
-   - 4.5 [api.ts — HTTP Client](#45-apits--http-client)
-   - 4.6 [styles.css — Design System](#46-stylescss--design-system)
+   - 4.2 [MobileGate.tsx — Mobile Device Gate](#42-mobilegatetsx--mobile-device-gate)
+   - 4.3 [App.tsx — Main Component](#43-apptsx--main-component)
+   - 4.4 [AudioEngine.ts](#44-audioenginets)
+   - 4.5 [CrtWebglOverlay.tsx](#45-crtwebgloverlaytsx)
+   - 4.6 [api.ts — HTTP Client](#46-apits--http-client)
+   - 4.7 [styles.css — Design System](#47-stylescss--design-system)
 5. [Backend — Supabase](#5-backend--supabase)
    - 5.1 [Database Schema](#51-database-schema)
    - 5.2 [Row-Level Security](#52-row-level-security)
@@ -61,12 +62,14 @@ MacroVibe Refinement (MVR) is a public web toy where users sort anonymized music
 ```
 macroviberefinement/
 ├── src/                        # Frontend — React + TypeScript
-│   ├── main.tsx                # Vite entry point
+│   ├── main.tsx                # Vite entry point; mobile detection + routing
 │   ├── App.tsx                 # Root component; all UI state and physics
+│   ├── MobileGate.tsx          # Mobile device gate screen (CRT + bin links)
 │   ├── AudioEngine.ts          # Web Audio API wrapper
 │   ├── CrtWebglOverlay.tsx     # WebGL CRT post-process layer
 │   ├── api.ts                  # Typed HTTP client for Edge Functions
 │   ├── styles.css              # Full design-system CSS
+│   ├── README.md               # Note: prior implementation removed; see docs/plans/
 │   └── assets/
 │       └── MVRLogo.svg
 ├── supabase/
@@ -131,13 +134,34 @@ macroviberefinement/
 
 ### 4.1 Entry Point
 
-`src/main.tsx` mounts the `<App />` component into `#root`. It is deliberately minimal — no routing, no context providers, no global stores.
+`src/main.tsx` evaluates `window.innerWidth <= 980` **once at load** (matching the CSS breakpoint) and renders either `<MobileGate />` or `<App />` into `#root`. There is no live resize switching — the check is intentionally a one-shot snapshot. There are no routing libraries, context providers, or global stores.
 
-### 4.2 App.tsx — Main Component
+### 4.2 MobileGate.tsx — Mobile Device Gate
+
+Rendered on viewports ≤ 980px wide. Informs users that the refine interface requires a desktop workstation and offers the six bin playlists as direct Audius links.
+
+#### Architecture
+
+- Uses `CrtWebglOverlay` with a custom `drawContent` callback — no audio phase or refine-UI props are passed.
+- The `drawContent` function renders: logo, a divider line, a message block, and a 2 × 3 bin grid with accent-coloured index numbers and "OPEN ↗" hints. Layout is fully adaptive — every section is anchored to the bottom of the previous one so nothing overflows at any frame height.
+- Invisible `<a>` tap targets are positioned in the DOM to match the CRT-drawn bin rectangles exactly. The coordinates are computed in the render closure using the same arithmetic as `drawContent`, keyed off `frameSize` (updated via `ResizeObserver`).
+- DOM fallback: when WebGL has not yet initialised (`crtStatus !== "ready"`), a `.mobile-gate-dom-fallback` div renders the logo, message, and bin links without any CRT effect.
+
+#### Constants
+
+| Constant | Value | Notes |
+|---|---|---|
+| `BIN_CODES` | `["VELLUM","BRINE","HEAT","STATIC","HALO","GRIT"]` | Same order as App.tsx |
+| `BIN_PLAYLIST_URLS` | Map of bin code → Audius URL | Shared with App.tsx |
+| `ACCENT` | `["#77DB70","#F1EB5A","#FE7BD9","#1A3DF5"]` | Per-bin accent colours (indices 0–3) |
+| `LOGO_ASPECT` | `1197 / 625` | SVG intrinsic aspect ratio |
+| `MESSAGE_LINES` | 5-line copy array | "Mobile devices are not permitted…" |
+
+### 4.3 App.tsx — Main Component
 
 `App.tsx` is the single root component. All UI state is local React state or refs — there is no external state library.
 
-#### 4.2.1 Constants
+#### 4.3.1 Constants
 
 ```
 BIN_CODES        — ["VELLUM","BRINE","HEAT","STATIC","HALO","GRIT"]
@@ -147,7 +171,7 @@ SESSION_SIZE_MAX — 64 (desktop target)
 FLUID_ROW_COUNTS — [7,8,6,8,7,8,6,7,7] — slot layout grid
 ```
 
-#### 4.2.2 Type Definitions
+#### 4.3.2 Type Definitions
 
 | Type | Purpose |
 |---|---|
@@ -158,27 +182,27 @@ FLUID_ROW_COUNTS — [7,8,6,8,7,8,6,7,7] — slot layout grid
 | `ThrowState` | State driving the fly-to-bin animation after drag release |
 | `AudioPhase` | `"locked" | "preloading" | "ready"` — audio readiness state |
 
-#### 4.2.3 `makeCode(seed)`
+#### 4.3.3 `makeCode(seed)`
 
 Generates the 4-character alphanumeric code displayed on each cell (e.g. `"A3F7"`). Uses FNV-1a hash over the track's `seed` string returned by the API. This is deterministic per track — the same track always displays the same code within a session.
 
-#### 4.2.4 `buildCellsFromTracks(tracks)`
+#### 4.3.4 `buildCellsFromTracks(tracks)`
 
 Maps API `SessionTrack[]` to `Cell[]`. Assigns deterministic float/drift animation parameters from the cell index using modular arithmetic — no `Math.random()` here, so layout is stable across re-renders.
 
-#### 4.2.5 `FLUID_SLOTS` (module-level constant)
+#### 4.3.5 `FLUID_SLOTS` (module-level constant)
 
 Pre-computes normalized `{x, y}` slot positions for up to ~58 cells using the `FLUID_ROW_COUNTS` grid. These are used as "home" positions for the physics simulation. Slot positions have small per-cell wobble offsets baked in to avoid a perfectly uniform grid appearance.
 
-#### 4.2.6 `buildHomeLayout(width, height, cells)`
+#### 4.3.6 `buildHomeLayout(width, height, cells)`
 
 Converts normalized slot positions to pixel coordinates for the current grid size. Called whenever the grid is resized or cells change.
 
-#### 4.2.7 `getCellScale(cellId, hoveredCellId, layoutByCell, isDragging)`
+#### 4.3.7 `getCellScale(cellId, hoveredCellId, layoutByCell, isDragging)`
 
 Returns a CSS scale factor for a cell based on its distance from the currently hovered cell. Hover causes the hovered cell to scale up (`1.35×`) and nearby cells to scale slightly (`1.12×` and `1.06×`). Has no effect while dragging.
 
-#### 4.2.8 Physics Loop (`useEffect` on `activeCellIds`)
+#### 4.3.8 Physics Loop (`useEffect` on `activeCellIds`)
 
 Runs every `requestAnimationFrame`. Each active (unplaced) cell is treated as a particle with velocity:
 
@@ -192,7 +216,7 @@ Runs every `requestAnimationFrame`. Each active (unplaced) cell is treated as a 
 
 Layout commits to React state at ≤30 fps (`33.3 ms` throttle) unless drag or throw is active.
 
-#### 4.2.9 Audio Unlock Flow
+#### 4.3.9 Audio Unlock Flow
 
 The Web Audio API requires a user gesture before `AudioContext` can be created. The flow:
 
@@ -200,7 +224,7 @@ The Web Audio API requires a user gesture before `AudioContext` can be created. 
 2. When the user clicks **BEGIN REFINEMENT**, `handleUnlock()` runs inside the click handler: creates `AudioContext`, awaits the pre-fetched session data (or fetches fresh), then calls `initSession()`.
 3. `initSession()` sets audio phase to `"preloading"`, calls `AudioEngine.preload()`, then sets phase to `"ready"`.
 
-#### 4.2.10 `startThrowAnimation(source)`
+#### 4.3.10 `startThrowAnimation(source)`
 
 Animates a cell flying from its drag release point to the target bin over `THROW_X_MS = 280 ms` (X axis) and `THROW_Y_MS = 340 ms` (Y axis), with a small parabolic arc on Y. On completion:
 
@@ -208,17 +232,17 @@ Animates a cell flying from its drag release point to the target bin over `THROW
 - `api.submitPlacement()` is called. If it fails (except `DUPLICATE_PLACEMENT`), the placement is reverted and a status message is shown.
 - The audio voice for the placed track is faded out.
 
-#### 4.2.11 Session Reset
+#### 4.3.11 Session Reset
 
 Clicking **START NEW FILE** calls `initSession(true, null)`, which passes `reset=1` to the API. This mints a new session token and fetches a fresh track batch.
 
-#### 4.2.12 Completion Detection
+#### 4.3.12 Completion Detection
 
 `isComplete = cells.length > 0 && placedCount >= sessionSize`. When true, a full-frame overlay with the reset button is rendered.
 
 ---
 
-### 4.3 AudioEngine.ts
+### 4.4 AudioEngine.ts
 
 A minimal Web Audio API wrapper. Audio plays only on hover — there is no background music or persistent playback.
 
@@ -235,9 +259,13 @@ Two-phase loading:
 
 **Phase 1 (gate blocks):** Fetches the first `524,287 bytes` (~30 s of 128 kbps MP3) of each track's stream URL via HTTP Range request. Falls back to a full fetch if the server doesn't support Range. Up to 8 tracks are loaded concurrently. Reports progress via `onProgress(loaded, total)`. The audio gate does not open until all tracks complete Phase 1.
 
-**Phase 2 (background, fire-and-forget):** Fetches the full audio file for each track in the background after the gate opens. Buffers are swapped in-place in `this.buffers`. The next `hoverIn()` call automatically uses the upgraded buffer.
+**Phase 2 (background, fire-and-forget):** Fetches the full audio file for each track in the background after the gate opens. Buffers are swapped in-place in `this.buffers`. The next `hoverIn()` call automatically uses the upgraded buffer. Phase 2 only runs when the caller provides the optional `onUpgradeProgress` callback — `App.tsx` passes this callback; any caller that omits it skips background upgrading entirely.
 
-Retry policy: up to 3 attempts with exponential backoff (800 ms base). HTTP 4xx errors other than 429 are not retried.
+Retry policy differs by phase:
+- **Phase 1** — up to 2 retries, 800 ms base delay. Keeps total gate time predictable.
+- **Phase 2** — up to 3 retries, 1000 ms base delay. More tolerant since it runs off the critical path.
+
+HTTP 4xx errors other than 429 are not retried in either phase.
 
 #### `hoverIn(trackId)` / `hoverOut(trackId)`
 
@@ -251,7 +279,7 @@ Fades out all active voices (called on pointer leave, drag cancel, and session r
 
 ---
 
-### 4.4 CrtWebglOverlay.tsx
+### 4.5 CrtWebglOverlay.tsx
 
 A `position: fixed; inset: 0; z-index: 40` WebGL canvas that applies a CRT post-process effect to the entire `refine-frame` element. It is the **primary visual surface** — when WebGL initializes successfully, the DOM `refine-frame` is made `opacity: 0` (CSS class `refine-frame-proxy`) and all drawing happens on the WebGL canvas.
 
@@ -305,7 +333,7 @@ If WebGL context creation fails, `onStatusChange("failed")` is called and the co
 
 ---
 
-### 4.5 api.ts — HTTP Client
+### 4.6 api.ts — HTTP Client
 
 A minimal typed fetch wrapper. All API calls go through `apiFetch<T>()`.
 
@@ -333,7 +361,7 @@ All methods return `ApiResult<T>`:
 
 ---
 
-### 4.6 styles.css — Design System
+### 4.7 styles.css — Design System
 
 #### Color Tokens
 

@@ -14,7 +14,7 @@ const BIN_PLAYLIST_URLS: Record<string, string> = {
 };
 
 const LOGO_ASPECT = 1197 / 625;
-const ACCENT = ["#77DB70", "#F1EB5A", "#FE7BD9", "#1A3DF5", "#77DB70", "#F1EB5A"];
+const ACCENT = ["#77DB70", "#F1EB5A", "#FE7BD9", "#1A3DF5"];
 
 const MESSAGE_LINES = [
   "Mobile devices are not permitted",
