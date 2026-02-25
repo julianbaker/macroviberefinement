@@ -1014,9 +1014,9 @@ export function App() {
                       cellLeaveTimeoutRef.current = setTimeout(() => {
                         cellLeaveTimeoutRef.current = null;
                         setHoveredCellId((current) => (current === leavingId ? null : current));
-                        // Timeout fired → pointer is in dead space between cells.
-                        // Fade out the leaving cell's audio so it doesn't play
-                        // indefinitely until a new cell is entered or the grid is exited.
+                        // During a drag the pointer naturally exits the cell heading
+                        // toward a bin — audio must keep playing until drop/cancel.
+                        if (dragRef.current) return;
                         if (prevHoverIdRef.current === leavingId) {
                           audioEngineRef.current?.hoverOut(leavingTrackId);
                           prevHoverIdRef.current = null;
