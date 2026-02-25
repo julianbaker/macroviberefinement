@@ -51,6 +51,7 @@ export class AudioEngine {
   private ctx: AudioContext;
   private buffers = new Map<string, AudioBuffer>();
   private voices: Voice[] = [];
+  private fadingVoices: Voice[] = [];
   private masterGain: GainNode;
   private sessionStartMs = 0;
 
@@ -171,6 +172,20 @@ export class AudioEngine {
     if (!this.buffers.has(trackId)) return;
     if (this.voices.some((v) => v.trackId === trackId)) return;
 
+    // Cancel all orphaned fading voices immediately to prevent accumulation
+    // during rapid cursor movement. A short micro-fade avoids a hard click.
+    if (this.fadingVoices.length > 0) {
+      const now = this.ctx.currentTime;
+      const MICRO_FADE = 0.02;
+      for (const v of this.fadingVoices) {
+        v.gain.gain.cancelScheduledValues(now);
+        v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+        v.gain.gain.linearRampToValueAtTime(0, now + MICRO_FADE);
+        v.source.stop(now + MICRO_FADE + 0.005);
+      }
+      this.fadingVoices = [];
+    }
+
     while (this.voices.length >= MAX_VOICES) {
       const oldest = this.voices.shift()!;
       this._fadeStop(oldest, RAMP_OUT_SEC * 0.5);
@@ -197,12 +212,14 @@ export class AudioEngine {
     const idx = this.voices.findIndex((v) => v.trackId === trackId);
     if (idx < 0) return;
     const [voice] = this.voices.splice(idx, 1);
+    this.fadingVoices.push(voice);
     this._fadeStop(voice, RAMP_OUT_SEC);
   }
 
   stopAll(): void {
     const snapshot = this.voices.splice(0);
     for (const voice of snapshot) {
+      this.fadingVoices.push(voice);
       this._fadeStop(voice, RAMP_OUT_SEC);
     }
   }
@@ -213,5 +230,9 @@ export class AudioEngine {
     voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
     voice.gain.gain.linearRampToValueAtTime(0, now + durationSec);
     voice.source.stop(now + durationSec + 0.02);
+    voice.source.onended = () => {
+      const idx = this.fadingVoices.indexOf(voice);
+      if (idx >= 0) this.fadingVoices.splice(idx, 1);
+    };
   }
 }

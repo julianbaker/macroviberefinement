@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import logoUrl from "./assets/MVRLogo.svg?url";
+import cursorDefaultUrl from "./assets/cursors/cursor-default.svg?url";
+import cursorPointerUrl from "./assets/cursors/cursor-pointer.svg?url";
+import cursorGrabUrl from "./assets/cursors/cursor-grab.svg?url";
+import cursorGrabbingUrl from "./assets/cursors/cursor-grabbing.svg?url";
+
+export type CursorType = "default" | "pointer" | "grab" | "grabbing";
 
 export type SurfaceCellRender = {
   id: number;
@@ -46,6 +52,7 @@ type CrtWebglOverlayProps = {
   // Custom draw override — when provided, replaces the built-in draw entirely
   drawContent?: (ctx: CanvasRenderingContext2D, frameWidth: number, frameHeight: number) => void;
   onStatusChange?: (status: "initializing" | "ready" | "failed") => void;
+  cursorType?: CursorType;
 };
 
 const CRT_PARAMS = {
@@ -65,6 +72,55 @@ const CRT_PARAMS = {
 
 const SOURCE_SCALE = 0.72;
 const SOURCE_FPS = 30;
+
+const CURSOR_SIZE = 48;
+
+const CURSOR_HOTSPOTS: Record<CursorType, readonly [number, number]> = {
+  default: [10, 10],
+  pointer: [13, 6],
+  grab: [16, 13],
+  grabbing: [15, 13],
+};
+
+// Applies the same forward UV mapping the CRT shader uses so the cursor
+// drawn in source-canvas space appears at the real pointer position on screen.
+const drawCursor = (
+  ctx: CanvasRenderingContext2D,
+  mousePos: { x: number; y: number } | null,
+  cursorType: CursorType,
+  frameRect: DOMRect,
+  cursorImages: Record<CursorType, HTMLImageElement | null>,
+) => {
+  if (!mousePos) return;
+  if (
+    mousePos.x < frameRect.left ||
+    mousePos.x > frameRect.right ||
+    mousePos.y < frameRect.top ||
+    mousePos.y > frameRect.bottom
+  ) {
+    return;
+  }
+
+  const img = cursorImages[cursorType];
+  if (!img || !img.complete) return;
+
+  // Normalised position within the frame (Y goes down, matching frameUv in shader)
+  const frameUvX = (mousePos.x - frameRect.left) / frameRect.width;
+  const frameUvY = (mousePos.y - frameRect.top) / frameRect.height;
+
+  // Match the shader's Y-flip (uv.y = 1.0 - frameUv.y) then apply curveRemapUV
+  const cx = frameUvX * 2.0 - 1.0;
+  const cy = (1.0 - frameUvY) * 2.0 - 1.0;
+  const dist = cx * cx + cy * cy;
+  const s = 1.0 + dist * (CRT_PARAMS.curvature * 0.25);
+
+  // Convert curved UV back to source-canvas draw coordinates (frame-space units)
+  const drawX = (cx * s * 0.5 + 0.5) * frameRect.width;
+  const drawY = (1.0 - (cy * s * 0.5 + 0.5)) * frameRect.height;
+
+  const [hx, hy] = CURSOR_HOTSPOTS[cursorType];
+  ctx.drawImage(img, drawX - hx, drawY - hy, CURSOR_SIZE, CURSOR_SIZE);
+};
 
 const VERTEX_SHADER = `
   attribute vec2 aPosition;
@@ -515,7 +571,7 @@ const drawSourceSurface = (
     ctx.fillRect(x + 1, rowY + 1, binW - 2, labelH - 2);
 
     ctx.fillStyle = accent[i % 4];
-    ctx.font = '600 12px "IBM Plex Mono", monospace';
+    ctx.font = '600 14px "IBM Plex Mono", monospace';
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(String(i + 1), x + 8, rowY + 19);
@@ -540,16 +596,16 @@ const drawSourceSurface = (
       ctx.fillStyle = "rgba(5,16,33,0.78)";
       ctx.fillRect(x + binW - 44, meterY + 1, 42, meterH - 2);
       ctx.fillStyle = "rgba(190,238,255,0.92)";
-      ctx.font = '600 11px "IBM Plex Mono", monospace';
+      ctx.font = '600 14px "IBM Plex Mono", monospace';
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
-      ctx.fillText("OPEN", x + binW - 5, meterY + meterH * 0.5);
+      ctx.fillText("OPEN ↗", x + binW - 5, meterY + meterH * 0.5);
     }
   }
 
   const footerY = frameHeight - 10;
   ctx.fillStyle = "rgba(190,238,255,0.66)";
-  ctx.font = '500 14px "IBM Plex Mono", monospace';
+  ctx.font = '500 16px "IBM Plex Mono", monospace';
   ctx.textAlign = "left";
   ctx.fillText("SESSION: 8F0C-42DA", pad, footerY);
   ctx.textAlign = "center";
@@ -592,6 +648,7 @@ export function CrtWebglOverlay({
   sessionInitError,
   drawContent,
   onStatusChange,
+  cursorType,
 }: CrtWebglOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [status, setStatus] = useState<"initializing" | "ready" | "failed">("initializing");
@@ -601,6 +658,36 @@ export function CrtWebglOverlay({
   // Stable draw-override ref — updated every render, no useEffect re-run needed
   const drawContentRef = useRef(drawContent);
   drawContentRef.current = drawContent;
+
+  // Mirror cursorType prop into a ref so the rAF loop always reads the latest value
+  const cursorTypeRef = useRef<CursorType>("default");
+  cursorTypeRef.current = cursorType ?? "default";
+
+  // Mouse position tracking — updated by pointermove, read each source canvas draw
+  const mousePosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Pre-loaded cursor images — populated once on mount
+  const cursorImagesRef = useRef<Record<CursorType, HTMLImageElement | null>>({
+    default: null,
+    pointer: null,
+    grab: null,
+    grabbing: null,
+  });
+  useEffect(() => {
+    const entries: Array<[CursorType, string]> = [
+      ["default", cursorDefaultUrl],
+      ["pointer", cursorPointerUrl],
+      ["grab", cursorGrabUrl],
+      ["grabbing", cursorGrabbingUrl],
+    ];
+    for (const [type, url] of entries) {
+      const img = new Image();
+      img.onload = () => {
+        cursorImagesRef.current[type] = img;
+      };
+      img.src = url;
+    }
+  }, []);
 
   // Pre-colorized logo canvas — built once on mount, passed into draw functions
   const logoCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -762,6 +849,18 @@ export function CrtWebglOverlay({
     window.addEventListener("resize", resize);
     resize();
 
+    let cursorNeedsRedraw = false;
+    const handlePointerMove = (event: PointerEvent) => {
+      mousePosRef.current = { x: event.clientX, y: event.clientY };
+      cursorNeedsRedraw = true;
+    };
+    const handlePointerLeave = () => {
+      mousePosRef.current = null;
+      cursorNeedsRedraw = true;
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerleave", handlePointerLeave);
+
     let lastSourceDraw = 0;
     const binOpenAmounts = Array.from({ length: latestRef.current.binCodes.length }, () => 0);
     let lastTick = performance.now();
@@ -806,7 +905,8 @@ export function CrtWebglOverlay({
         frameRect = frameRef.current?.getBoundingClientRect() ?? null;
       }
 
-      if (frameRect && timeMs - lastSourceDraw >= 1000 / SOURCE_FPS) {
+      if (frameRect && (timeMs - lastSourceDraw >= 1000 / SOURCE_FPS || cursorNeedsRedraw)) {
+        cursorNeedsRedraw = false;
         const srcW = Math.max(2, Math.floor(frameRect.width * SOURCE_SCALE));
         const srcH = Math.max(2, Math.floor(frameRect.height * SOURCE_SCALE));
 
@@ -858,6 +958,10 @@ export function CrtWebglOverlay({
             );
           }
         }
+
+        // Draw cursor on top of all content before uploading to WebGL texture
+        // so it inherits the full CRT effect (scanlines, bloom, curvature).
+        drawCursor(sourceCtx, mousePosRef.current, cursorTypeRef.current, frameRect, cursorImagesRef.current);
 
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
@@ -924,6 +1028,8 @@ export function CrtWebglOverlay({
       }
       canvas.removeEventListener("webglcontextlost", handleContextLost, false);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerleave", handlePointerLeave);
       observer.disconnect();
       gl.deleteTexture(texture);
       gl.deleteBuffer(quadBuffer);

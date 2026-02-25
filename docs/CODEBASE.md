@@ -12,11 +12,12 @@
 4. [Frontend](#4-frontend)
    - 4.1 [Entry Point](#41-entry-point)
    - 4.2 [MobileGate.tsx — Mobile Device Gate](#42-mobilegatetsx--mobile-device-gate)
-   - 4.3 [App.tsx — Main Component](#43-apptsx--main-component)
-   - 4.4 [AudioEngine.ts](#44-audioenginets)
-   - 4.5 [CrtWebglOverlay.tsx](#45-crtwebgloverlaytsx)
-   - 4.6 [api.ts — HTTP Client](#46-apits--http-client)
-   - 4.7 [styles.css — Design System](#47-stylescss--design-system)
+   - 4.3 [AlignmentReport.tsx — Post-Session Report](#43-alignmentreporttsx--post-session-report)
+   - 4.4 [App.tsx — Main Component](#44-apptsx--main-component)
+   - 4.5 [AudioEngine.ts](#45-audioenginets)
+   - 4.6 [CrtWebglOverlay.tsx](#46-crtwebgloverlaytsx)
+   - 4.7 [api.ts — HTTP Client](#47-apits--http-client)
+   - 4.8 [styles.css — Design System](#48-stylescss--design-system)
 5. [Backend — Supabase](#5-backend--supabase)
    - 5.1 [Database Schema](#51-database-schema)
    - 5.2 [Row-Level Security](#52-row-level-security)
@@ -32,6 +33,7 @@
    - 8.2 [Placement Flow](#82-placement-flow)
    - 8.3 [Ingest Pipeline](#83-ingest-pipeline)
    - 8.4 [Audius Playlist Sync](#84-audius-playlist-sync)
+   - 8.5 [Alignment Report Flow](#85-alignment-report-flow)
 9. [Key Design Decisions](#9-key-design-decisions)
 10. [Development Workflow](#10-development-workflow)
 11. [Configuration Reference](#11-configuration-reference)
@@ -65,6 +67,7 @@ macroviberefinement/
 │   ├── main.tsx                # Vite entry point; mobile detection + routing
 │   ├── App.tsx                 # Root component; all UI state and physics
 │   ├── MobileGate.tsx          # Mobile device gate screen (CRT + bin links)
+│   ├── AlignmentReport.tsx     # Post-session alignment report (CRT + bin stats)
 │   ├── AudioEngine.ts          # Web Audio API wrapper
 │   ├── CrtWebglOverlay.tsx     # WebGL CRT post-process layer
 │   ├── api.ts                  # Typed HTTP client for Edge Functions
@@ -90,7 +93,8 @@ macroviberefinement/
 │       ├── 20260220002000_04_ingest_scheduler.sql
 │       ├── 20260220010000_05_genre_filter.sql
 │       ├── 20260220050000_06_audius_sync.sql
-│       └── 20260220060000_07_remove_audius_cron.sql
+│       ├── 20260220060000_07_remove_audius_cron.sql
+│       └── 20260225000000_08_session_results.sql
 ├── scripts/
 │   ├── audius-sync.mjs         # Node.js hourly sync script (replaces Edge Function)
 │   └── package.json
@@ -157,11 +161,61 @@ Rendered on viewports ≤ 980px wide. Informs users that the refine interface re
 | `LOGO_ASPECT` | `1197 / 625` | SVG intrinsic aspect ratio |
 | `MESSAGE_LINES` | 5-line copy array | "Mobile devices are not permitted…" |
 
-### 4.3 App.tsx — Main Component
+### 4.3 AlignmentReport.tsx — Post-Session Report
+
+Rendered full-screen (fixed, `z-index: 60`) after the user completes a session and clicks **VIEW ALIGNMENT REPORT** from the completion overlay. Shows per-bin consensus alignment in a Telltale-style debrief.
+
+#### What it shows
+
+For each bin the user placed tracks into, a progress bar displays what percentage of those specific tracks also have global consensus pointing to the same bin. An overall alignment score at the top (matched tracks / tracks with any global consensus) gives a single headline number.
+
+```
+ ALIGNMENT REPORT
+ ───────────────────────────────────────
+          67%
+    CONSENSUS ALIGNMENT
+ ───────────────────────────────────────
+  VELLUM  ████████████░░░  12 · 83%
+  HEAT    ███████████████  14 · 93%
+  STATIC  ████░░░░░░░░░░░   4 · 50%
+  …
+ ───────────────────────────────────────
+        [ CLOSE ]  [ START NEW FILE ]
+```
+
+#### Architecture
+
+- Uses `CrtWebglOverlay` with a custom `drawContent` callback — the same pattern as `MobileGate.tsx`.
+- On mount, calls `api.sessionResults(sessionToken)` to fetch `[{ trackId, consensusBin }]` for all tracks in the session.
+- `computeBinStats()` is a pure function that maps `cells + placedBins + consensusMap` → per-bin stats.
+- Button positions are computed inside `drawContent` and published via a ref + deferred `setButtonLayout`. Invisible DOM `<button>` elements are positioned to exactly match the CRT-drawn labels.
+- DOM fallback: when WebGL hasn't initialised, `.alignment-report-fallback` shows the score and buttons without CRT effects.
+
+#### Props
+
+| Prop | Type | Description |
+|---|---|---|
+| `cells` | `Array<{ index, trackId }>` | The session's tracks |
+| `placedBins` | `Record<number, number>` | Cell index → bin index (user's choices) |
+| `sessionToken` | `string` | Used to fetch consensus data |
+| `onClose` | `() => void` | Returns to the completion overlay |
+| `onNewFile` | `() => void` | Hides the report and starts a fresh session |
+
+#### Load states
+
+| State | CRT display | Notes |
+|---|---|---|
+| `loading` | `FETCHING ALIGNMENT DATA` blink + skeleton bars | While RPC is in flight |
+| `ready` | Full bin rows with bars and percentages | Normal |
+| `error` | `ALIGNMENT DATA UNAVAILABLE` in pink | API failed; CLOSE still works |
+
+---
+
+### 4.4 App.tsx — Main Component
 
 `App.tsx` is the single root component. All UI state is local React state or refs — there is no external state library.
 
-#### 4.3.1 Constants
+#### 4.4.1 Constants
 
 ```
 BIN_CODES        — ["VELLUM","BRINE","HEAT","STATIC","HALO","GRIT"]
@@ -171,7 +225,7 @@ SESSION_SIZE_MAX — 64 (desktop target)
 FLUID_ROW_COUNTS — [7,8,6,8,7,8,6,7,7] — slot layout grid
 ```
 
-#### 4.3.2 Type Definitions
+#### 4.4.2 Type Definitions
 
 | Type | Purpose |
 |---|---|
@@ -182,27 +236,27 @@ FLUID_ROW_COUNTS — [7,8,6,8,7,8,6,7,7] — slot layout grid
 | `ThrowState` | State driving the fly-to-bin animation after drag release |
 | `AudioPhase` | `"locked" | "preloading" | "ready"` — audio readiness state |
 
-#### 4.3.3 `makeCode(seed)`
+#### 4.4.3 `makeCode(seed)`
 
 Generates the 4-character alphanumeric code displayed on each cell (e.g. `"A3F7"`). Uses FNV-1a hash over the track's `seed` string returned by the API. This is deterministic per track — the same track always displays the same code within a session.
 
-#### 4.3.4 `buildCellsFromTracks(tracks)`
+#### 4.4.4 `buildCellsFromTracks(tracks)`
 
 Maps API `SessionTrack[]` to `Cell[]`. Assigns deterministic float/drift animation parameters from the cell index using modular arithmetic — no `Math.random()` here, so layout is stable across re-renders.
 
-#### 4.3.5 `FLUID_SLOTS` (module-level constant)
+#### 4.4.5 `FLUID_SLOTS` (module-level constant)
 
 Pre-computes normalized `{x, y}` slot positions for up to ~58 cells using the `FLUID_ROW_COUNTS` grid. These are used as "home" positions for the physics simulation. Slot positions have small per-cell wobble offsets baked in to avoid a perfectly uniform grid appearance.
 
-#### 4.3.6 `buildHomeLayout(width, height, cells)`
+#### 4.4.6 `buildHomeLayout(width, height, cells)`
 
 Converts normalized slot positions to pixel coordinates for the current grid size. Called whenever the grid is resized or cells change.
 
-#### 4.3.7 `getCellScale(cellId, hoveredCellId, layoutByCell, isDragging)`
+#### 4.4.7 `getCellScale(cellId, hoveredCellId, layoutByCell, isDragging)`
 
 Returns a CSS scale factor for a cell based on its distance from the currently hovered cell. Hover causes the hovered cell to scale up (`1.35×`) and nearby cells to scale slightly (`1.12×` and `1.06×`). Has no effect while dragging.
 
-#### 4.3.8 Physics Loop (`useEffect` on `activeCellIds`)
+#### 4.4.8 Physics Loop (`useEffect` on `activeCellIds`)
 
 Runs every `requestAnimationFrame`. Each active (unplaced) cell is treated as a particle with velocity:
 
@@ -216,7 +270,7 @@ Runs every `requestAnimationFrame`. Each active (unplaced) cell is treated as a 
 
 Layout commits to React state at ≤30 fps (`33.3 ms` throttle) unless drag or throw is active.
 
-#### 4.3.9 Audio Unlock Flow
+#### 4.4.9 Audio Unlock Flow
 
 The Web Audio API requires a user gesture before `AudioContext` can be created. The flow:
 
@@ -224,7 +278,7 @@ The Web Audio API requires a user gesture before `AudioContext` can be created. 
 2. When the user clicks **BEGIN REFINEMENT**, `handleUnlock()` runs inside the click handler: creates `AudioContext`, awaits the pre-fetched session data (or fetches fresh), then calls `initSession()`.
 3. `initSession()` sets audio phase to `"preloading"`, calls `AudioEngine.preload()`, then sets phase to `"ready"`.
 
-#### 4.3.10 `startThrowAnimation(source)`
+#### 4.4.10 `startThrowAnimation(source)`
 
 Animates a cell flying from its drag release point to the target bin over `THROW_X_MS = 280 ms` (X axis) and `THROW_Y_MS = 340 ms` (Y axis), with a small parabolic arc on Y. On completion:
 
@@ -232,17 +286,17 @@ Animates a cell flying from its drag release point to the target bin over `THROW
 - `api.submitPlacement()` is called. If it fails (except `DUPLICATE_PLACEMENT`), the placement is reverted and a status message is shown.
 - The audio voice for the placed track is faded out.
 
-#### 4.3.11 Session Reset
+#### 4.4.11 Session Reset
 
 Clicking **START NEW FILE** calls `initSession(true, null)`, which passes `reset=1` to the API. This mints a new session token and fetches a fresh track batch.
 
-#### 4.3.12 Completion Detection
+#### 4.4.12 Completion Detection
 
 `isComplete = cells.length > 0 && placedCount >= sessionSize`. When true, a full-frame overlay with the reset button is rendered.
 
 ---
 
-### 4.4 AudioEngine.ts
+### 4.5 AudioEngine.ts
 
 A minimal Web Audio API wrapper. Audio plays only on hover — there is no background music or persistent playback.
 
@@ -279,7 +333,7 @@ Fades out all active voices (called on pointer leave, drag cancel, and session r
 
 ---
 
-### 4.5 CrtWebglOverlay.tsx
+### 4.6 CrtWebglOverlay.tsx
 
 A `position: fixed; inset: 0; z-index: 40` WebGL canvas that applies a CRT post-process effect to the entire `refine-frame` element. It is the **primary visual surface** — when WebGL initializes successfully, the DOM `refine-frame` is made `opacity: 0` (CSS class `refine-frame-proxy`) and all drawing happens on the WebGL canvas.
 
@@ -333,7 +387,7 @@ If WebGL context creation fails, `onStatusChange("failed")` is called and the co
 
 ---
 
-### 4.6 api.ts — HTTP Client
+### 4.7 api.ts — HTTP Client
 
 A minimal typed fetch wrapper. All API calls go through `apiFetch<T>()`.
 
@@ -349,6 +403,7 @@ A minimal typed fetch wrapper. All API calls go through `apiFetch<T>()`.
 | Method | Signature | Description |
 |---|---|---|
 | `api.sessionInit(device, reset?)` | `GET /session/init` | Fetch a new (or existing) session |
+| `api.sessionResults(sessionToken)` | `GET /session/results` | Per-track consensus bins for a completed session |
 | `api.submitPlacement(request)` | `POST /placements` | Submit a bin assignment |
 | `api.archiveBins()` | `GET /archive/bins` | List all bins with track counts |
 | `api.archiveBinDetail(binCode)` | `GET /archive/bin/:code` | Tracks assigned to a specific bin |
@@ -361,7 +416,7 @@ All methods return `ApiResult<T>`:
 
 ---
 
-### 4.7 styles.css — Design System
+### 4.8 styles.css — Design System
 
 #### Color Tokens
 
@@ -588,6 +643,10 @@ Called by the ingest function after a successful run:
 
 Deletes `placement_attempts` rows older than 7 days. Called on a schedule (migration `_04_ingest_scheduler.sql`).
 
+#### `api_v1_session_results(p_session_token)`
+
+Added in migration `_08_session_results.sql`. Returns `(track_id text, consensus_bin_code text)` for every track in the session. `consensus_bin_code` is `NULL` when the track has no recorded placements yet. Read-only; no locks needed.
+
 ---
 
 ### 5.4 Edge Function: api
@@ -602,6 +661,7 @@ The sole public HTTP API. All routes are served from this single function.
 | Method | Path | Handler |
 |---|---|---|
 | `GET` | `/api/v1/session/init?device=&reset=` | `handleSessionInit` |
+| `GET` | `/api/v1/session/results` | `handleSessionResults` |
 | `POST` | `/api/v1/placements` | `handlePlacements` |
 | `GET` | `/api/v1/archive/bins` | `handleArchiveBins` |
 | `GET` | `/api/v1/archive/bin/:binCode` | `handleArchiveBinDetail` |
@@ -624,6 +684,12 @@ All routes return `OPTIONS 204` for CORS preflight.
 4. HMAC-hashes IP (`x-forwarded-for` or `cf-connecting-ip`) and User-Agent.
 5. Calls `api_v1_submit_placement` RPC with rate-limit parameters from config.
 6. Maps RPC result status to HTTP response.
+
+#### `handleSessionResults`
+
+1. Reads `session_token` from the `X-Session-Token` header; falls back to the `session_token` query parameter.
+2. Calls `api_v1_session_results` RPC.
+3. Returns `{ tracks: [{ trackId, consensusBin }] }` — `consensusBin` is `null` for tracks with no recorded placements yet.
 
 #### `handleArchiveBins` / `handleArchiveBinDetail`
 
@@ -810,6 +876,31 @@ Hourly (scripts/audius-sync.mjs via GitHub Actions)
        ├─ Apply: removeTrackFromPlaylist / addTrackToPlaylist via Audius SDK
        ├─ Update audius_published_tracks accordingly
        └─ INSERT audius_sync_runs
+```
+
+### 8.5 Alignment Report Flow
+
+```
+Session completes (placedCount >= sessionSize)
+  └─ Completion overlay: START NEW FILE | VIEW ALIGNMENT REPORT
+
+User clicks VIEW ALIGNMENT REPORT
+  └─ App.tsx sets showAlignment=true
+  └─ <AlignmentReport> mounts (z-index: 60, over everything)
+       ├─ api.sessionResults(sessionToken)
+       │    └─ GET /api/v1/session/results (X-Session-Token header)
+       │         └─ api_v1_session_results() RPC
+       │              └─ refine_session_tracks LEFT JOIN track_current_bin LEFT JOIN bins
+       │                   → [{trackId, consensusBin}]    (consensusBin null = no votes yet)
+       ├─ computeBinStats(cells, placedBins, consensusMap)
+       │    For each bin: userCount, matchCount, noConsensusCount
+       └─ drawContent(ctx)
+            ├─ [loading]  skeleton bars + FETCHING label
+            ├─ [error]    ALIGNMENT DATA UNAVAILABLE
+            └─ [ready]    big % score + 6 bin rows with accent-coloured progress bars
+
+User clicks CLOSE            → App.tsx sets showAlignment=false (returns to completion overlay)
+User clicks START NEW FILE   → App.tsx sets showAlignment=false + calls resetFile()
 ```
 
 ---

@@ -54,6 +54,15 @@ export type ArchiveBinDetailResponse = {
   tracks: ArchiveTrack[];
 };
 
+export type SessionResultTrack = {
+  trackId: string;
+  consensusBin: string | null;
+};
+
+export type SessionResultsResponse = {
+  tracks: SessionResultTrack[];
+};
+
 type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; statusCode: number; error: ApiError };
@@ -121,5 +130,13 @@ export const api = {
 
   archiveBinDetail(binCode: string): Promise<ApiResult<ArchiveBinDetailResponse>> {
     return apiFetch<ArchiveBinDetailResponse>(`${API_BASE_PATH}/archive/bin/${encodeURIComponent(binCode)}`);
+  },
+
+  sessionResults(sessionToken: string): Promise<ApiResult<SessionResultsResponse>> {
+    return apiFetch<SessionResultsResponse>(
+      `${API_BASE_PATH}/session/results`,
+      undefined,
+      sessionToken,
+    );
   },
 };

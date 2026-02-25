@@ -43,6 +43,11 @@ type PlacementBody = {
   latencyMs?: unknown;
 };
 
+type ResultsRow = {
+  track_id: string;
+  consensus_bin_code: string | null;
+};
+
 function logEvent(name: string, payload: Record<string, unknown>): void {
   console.log(JSON.stringify({ event: name, ...payload }));
 }
@@ -289,6 +294,39 @@ async function handlePlacements(
   return errorResponse(errorCode);
 }
 
+async function handleSessionResults(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+): Promise<Response> {
+  const url = new URL(req.url);
+  const sessionToken =
+    req.headers.get("x-session-token")?.trim() ||
+    url.searchParams.get("session_token")?.trim() ||
+    null;
+
+  if (!sessionToken) {
+    return errorResponse("BAD_REQUEST", "session_token is required (header X-Session-Token or query param).");
+  }
+
+  const { data, error } = await supabase.rpc("api_v1_session_results", {
+    p_session_token: sessionToken,
+  });
+
+  if (error) {
+    console.error("session results rpc error", error);
+    return errorResponse("SERVER_ERROR");
+  }
+
+  const rows = (data ?? []) as ResultsRow[];
+
+  return jsonResponse({
+    tracks: rows.map((row) => ({
+      trackId: row.track_id,
+      consensusBin: row.consensus_bin_code,
+    })),
+  });
+}
+
 async function handleArchiveBins(
   config: RuntimeConfig,
   supabase: ReturnType<typeof createClient>,
@@ -399,6 +437,13 @@ Deno.serve(async (req) => {
         return errorResponse("BAD_REQUEST", "Method not allowed.");
       }
       return await handlePlacements(req, config, supabase);
+    }
+
+    if (apiPath === `${config.apiBasePath}/session/results`) {
+      if (req.method !== "GET") {
+        return errorResponse("BAD_REQUEST", "Method not allowed.");
+      }
+      return await handleSessionResults(req, supabase);
     }
 
     if (apiPath === `${config.apiBasePath}/archive/bins`) {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { CrtWebglOverlay } from "./CrtWebglOverlay";
+import type { CursorType } from "./CrtWebglOverlay";
+import { AlignmentReport } from "./AlignmentReport";
 import { AudioEngine } from "./AudioEngine";
 import type { TrackMeta } from "./AudioEngine";
 import { api } from "./api";
@@ -206,6 +208,9 @@ export function App() {
   const dragRef = useRef<DragState | null>(null);
   const physicsRef = useRef<Record<number, CellNode>>({});
   const homeLayoutRef = useRef<Record<number, CellLayout>>({});
+  // Debounce ref for clearing hoveredCellId on cell leave so that moving
+  // directly between adjacent cells doesn't flash the cursor to "default".
+  const cellLeaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session state
   const [cells, setCells] = useState<Cell[]>([]);
@@ -233,6 +238,7 @@ export function App() {
   const [pointerInGrid, setPointerInGrid] = useState<PointerState | null>(null);
   const [crtStatus, setCrtStatus] = useState<"initializing" | "ready" | "failed">("initializing");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [hoveredButton, setHoveredButton] = useState(false);
 
   const [audioPhase, setAudioPhase] = useState<AudioPhase>("locked");
   const [preloadProgress, setPreloadProgress] = useState({ loaded: 0, total: SESSION_SIZE_MAX });
@@ -247,9 +253,26 @@ export function App() {
 
   dragRef.current = dragState;
 
+  const [showAlignment, setShowAlignment] = useState(false);
+
   const placedCount = Object.keys(placedBins).length;
   const isDragging = dragState !== null;
   const isComplete = cells.length > 0 && placedCount >= sessionSize;
+
+  // Reset hoveredButton whenever the set of interactive buttons on screen changes.
+  // Clicking a button can unmount it before onPointerLeave fires, leaving
+  // hoveredButton permanently true and the cursor stuck on "pointer".
+  useEffect(() => {
+    setHoveredButton(false);
+  }, [audioPhase, isComplete]);
+
+  const cursorType: CursorType = isDragging
+    ? "grabbing"
+    : hoveredCellId !== null
+      ? "grab"
+      : hoveredBinPlaylist !== null || hoveredButton
+        ? "pointer"
+        : "default";
 
   const cellById = useMemo(() => {
     const map: Record<number, Cell> = {};
@@ -716,7 +739,13 @@ export function App() {
       if (cell) {
         audioEngineRef.current?.hoverOut(cell.trackId);
       }
-      prevHoverIdRef.current = null;
+      // Only clear prevHoverIdRef if it still points to the placed cell.
+      // If the user moved to another cell during the throw animation, that
+      // cell's index must remain tracked so the next onPointerEnter calls
+      // hoverOut correctly and doesn't leave a ghost voice in voices[].
+      if (prevHoverIdRef.current === source.cellId) {
+        prevHoverIdRef.current = null;
+      }
 
       // Fire API placement
       const token = sessionTokenRef.current;
@@ -795,7 +824,7 @@ export function App() {
   }, [isDragging, startThrowAnimation]);
 
   const handleCellPointerDown = (event: ReactPointerEvent<HTMLElement>, cell: Cell) => {
-    if (isDragging || throwState || placedBins[cell.index] !== undefined) {
+    if (isDragging || (throwState !== null && throwState.cellId === cell.index) || placedBins[cell.index] !== undefined) {
       return;
     }
 
@@ -821,6 +850,10 @@ export function App() {
     originX = event.clientX - clampedOffsetX * pickupScale;
     originY = event.clientY - clampedOffsetY * pickupScale;
 
+    if (cellLeaveTimeoutRef.current !== null) {
+      clearTimeout(cellLeaveTimeoutRef.current);
+      cellLeaveTimeoutRef.current = null;
+    }
     setDragState({
       cellId: cell.index,
       code: cell.code,
@@ -876,7 +909,7 @@ export function App() {
         : "LATENCY: OK";
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${crtStatus === "ready" ? " crt-active" : ""}`}>
       <div className="crt-scene">
         <section
           ref={frameRef}
@@ -911,6 +944,10 @@ export function App() {
               });
             }}
             onPointerLeave={() => {
+              if (cellLeaveTimeoutRef.current !== null) {
+                clearTimeout(cellLeaveTimeoutRef.current);
+                cellLeaveTimeoutRef.current = null;
+              }
               setHoveredCellId(null);
               setPointerInGrid(null);
               // While dragging, the pointer naturally exits the grid heading toward
@@ -948,6 +985,11 @@ export function App() {
                       transform: `translate3d(${layout.x}px, ${layout.y}px, 0) translate(-50%, -50%) scale(${scale})`,
                     }}
                     onPointerEnter={() => {
+                      // Cancel any pending leave-clear before processing enter
+                      if (cellLeaveTimeoutRef.current !== null) {
+                        clearTimeout(cellLeaveTimeoutRef.current);
+                        cellLeaveTimeoutRef.current = null;
+                      }
                       if (isDragging) return;
                       setHoveredCellId(cell.index);
                       if (hoverStartTimeRef.current === null) {
@@ -962,6 +1004,24 @@ export function App() {
                         engine?.hoverIn(cell.trackId);
                         prevHoverIdRef.current = cell.index;
                       }
+                    }}
+                    onPointerLeave={() => {
+                      // Defer the clear — if the pointer enters another cell before
+                      // the timeout fires, that enter handler cancels this timeout,
+                      // avoiding a "default" cursor flash when crossing between cells.
+                      const leavingId = cell.index;
+                      const leavingTrackId = cell.trackId;
+                      cellLeaveTimeoutRef.current = setTimeout(() => {
+                        cellLeaveTimeoutRef.current = null;
+                        setHoveredCellId((current) => (current === leavingId ? null : current));
+                        // Timeout fired → pointer is in dead space between cells.
+                        // Fade out the leaving cell's audio so it doesn't play
+                        // indefinitely until a new cell is entered or the grid is exited.
+                        if (prevHoverIdRef.current === leavingId) {
+                          audioEngineRef.current?.hoverOut(leavingTrackId);
+                          prevHoverIdRef.current = null;
+                        }
+                      }, 0);
                     }}
                   >
                     <span className="cell-wobble" style={wobbleStyle}>
@@ -1028,9 +1088,26 @@ export function App() {
 
           {isComplete && (
             <div className="completion-overlay">
-              <button type="button" className="completion-button" onClick={resetFile}>
-                START NEW FILE
-              </button>
+              <div className="completion-overlay-buttons">
+                <button
+                  type="button"
+                  className="completion-button"
+                  onClick={resetFile}
+                  onPointerEnter={() => setHoveredButton(true)}
+                  onPointerLeave={() => setHoveredButton(false)}
+                >
+                  START NEW FILE
+                </button>
+                <button
+                  type="button"
+                  className="completion-button is-secondary"
+                  onClick={() => setShowAlignment(true)}
+                  onPointerEnter={() => setHoveredButton(true)}
+                  onPointerLeave={() => setHoveredButton(false)}
+                >
+                  VIEW ALIGNMENT REPORT
+                </button>
+              </div>
             </div>
           )}
         </section>
@@ -1053,7 +1130,13 @@ export function App() {
               {sessionInitError && (
                 <p className="gate-error">ERROR: {sessionInitError}</p>
               )}
-              <button type="button" className="gate-button" onClick={handleUnlock}>
+              <button
+                type="button"
+                className="gate-button"
+                onClick={handleUnlock}
+                onPointerEnter={() => setHoveredButton(true)}
+                onPointerLeave={() => setHoveredButton(false)}
+              >
                 BEGIN REFINEMENT
               </button>
             </div>
@@ -1098,7 +1181,23 @@ export function App() {
         preloadProgress={preloadProgress}
         sessionInitError={sessionInitError}
         onStatusChange={setCrtStatus}
+        cursorType={cursorType}
       />
+
+      {showAlignment && sessionToken && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 60 }}>
+          <AlignmentReport
+            cells={cells}
+            placedBins={placedBins}
+            sessionToken={sessionToken}
+            onClose={() => setShowAlignment(false)}
+            onNewFile={() => {
+              setShowAlignment(false);
+              resetFile();
+            }}
+          />
+        </div>
+      )}
     </main>
   );
 }
