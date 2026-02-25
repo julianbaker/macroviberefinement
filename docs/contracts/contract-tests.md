@@ -16,8 +16,15 @@ Examples:
 CONTRACT_BASE_URL="http://127.0.0.1:54321/functions/v1/api" npm run test:contract
 ```
 
+Direct invocation also works:
+
+```bash
+CONTRACT_BASE_URL="http://127.0.0.1:54321/functions/v1/api" node tests/contracts/api-v1.contract.test.mjs
+```
+
 ## What the suite validates
 - `/api/v1/session/init` success shape and `INSUFFICIENT_POOL` behavior.
+- `/api/v1/session/results` response shape (`trackId`, nullable `consensusBin`).
 - `/api/v1/placements` token precedence mismatch (`SESSION_TOKEN_MISMATCH`).
 - `/api/v1/placements` success + duplicate handling (`DUPLICATE_PLACEMENT`).
 - `/api/v1/archive/bins` fixed bin list contract.

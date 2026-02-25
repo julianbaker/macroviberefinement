@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:contract": "node tests/contracts/api-v1.contract.test.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",

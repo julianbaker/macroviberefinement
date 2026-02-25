@@ -64,7 +64,7 @@ MacroVibe Refinement (MVR) is a public web toy where users sort anonymized music
 ```
 macroviberefinement/
 ├── src/                        # Frontend — React + TypeScript
-│   ├── main.tsx                # Vite entry point; mobile detection + routing
+│   ├── main.tsx                # Vite entry point; mobile gate + optional dev preview
 │   ├── App.tsx                 # Root component; all UI state and physics
 │   ├── MobileGate.tsx          # Mobile device gate screen (CRT + bin links)
 │   ├── AlignmentReport.tsx     # Post-session alignment report (CRT + bin stats)
@@ -72,7 +72,7 @@ macroviberefinement/
 │   ├── CrtWebglOverlay.tsx     # WebGL CRT post-process layer
 │   ├── api.ts                  # Typed HTTP client for Edge Functions
 │   ├── styles.css              # Full design-system CSS
-│   ├── README.md               # Note: prior implementation removed; see docs/plans/
+│   ├── README.md               # Frontend source guide and file map
 │   └── assets/
 │       └── MVRLogo.svg
 ├── supabase/
@@ -138,7 +138,12 @@ macroviberefinement/
 
 ### 4.1 Entry Point
 
-`src/main.tsx` evaluates `window.innerWidth <= 980` **once at load** (matching the CSS breakpoint) and renders either `<MobileGate />` or `<App />` into `#root`. There is no live resize switching — the check is intentionally a one-shot snapshot. There are no routing libraries, context providers, or global stores.
+`src/main.tsx` has two startup paths:
+
+- Normal flow: evaluates `window.innerWidth <= 980` **once at load** (matching the CSS breakpoint) and renders either `<MobileGate />` or `<App />` into `#root`.
+- Dev preview flow: `/?preview=alignment` renders `<AlignmentReport />` with mock data (no backend required).
+
+There is no live resize switching in normal flow — the check is intentionally a one-shot snapshot. There are no routing libraries, context providers, or global stores.
 
 ### 4.2 MobileGate.tsx — Mobile Device Gate
 

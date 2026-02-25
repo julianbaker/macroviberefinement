@@ -4,6 +4,8 @@ Status: **FROZEN for FE integration**
 
 Freeze date: **February 19, 2026**
 
+Additive update: **February 25, 2026** (`GET /api/v1/session/results`).
+
 External JSON naming: `camelCase`
 
 API base path: `/api/v1`
@@ -27,6 +29,7 @@ Error envelope:
 
 ## Endpoint List
 - `GET /api/v1/session/init`
+- `GET /api/v1/session/results`
 - `POST /api/v1/placements`
 - `GET /api/v1/archive/bins`
 - `GET /api/v1/archive/bin/:binCode`
@@ -68,7 +71,42 @@ curl -sS "${FUNCTION_BASE_URL}/api/v1/session/init?device=desktop&reset=1"
 }
 ```
 
-## 2) POST /api/v1/placements
+## 2) GET /api/v1/session/results
+### Auth / token source
+- `X-Session-Token` header (preferred)
+- fallback query param: `session_token`
+
+### Request examples
+```bash
+curl -sS "${FUNCTION_BASE_URL}/api/v1/session/results" \
+  -H "X-Session-Token: f0d6f5e6b2f6484ba55e22eb20df9f10"
+```
+
+```bash
+curl -sS "${FUNCTION_BASE_URL}/api/v1/session/results?session_token=f0d6f5e6b2f6484ba55e22eb20df9f10"
+```
+
+### 200 response example
+```json
+{
+  "tracks": [
+    {
+      "trackId": "123456",
+      "consensusBin": "VELLUM"
+    },
+    {
+      "trackId": "234567",
+      "consensusBin": null
+    }
+  ]
+}
+```
+
+Notes:
+- One row is returned for every track in the session.
+- `consensusBin = null` means there is not enough placement data yet for a winning bin.
+
+## 3) POST /api/v1/placements
 ### Request body
 ```json
 {
@@ -117,7 +155,7 @@ curl -sS -X POST "${FUNCTION_BASE_URL}/api/v1/placements" \
 }
 ```
 
-## 3) GET /api/v1/archive/bins
+## 4) GET /api/v1/archive/bins
 ### Request example
 ```bash
 curl -sS "${FUNCTION_BASE_URL}/api/v1/archive/bins"
@@ -137,7 +175,7 @@ curl -sS "${FUNCTION_BASE_URL}/api/v1/archive/bins"
 }
 ```
 
-## 4) GET /api/v1/archive/bin/:binCode
+## 5) GET /api/v1/archive/bin/:binCode
 ### Request example
 ```bash
 curl -sS "${FUNCTION_BASE_URL}/api/v1/archive/bin/VELLUM"

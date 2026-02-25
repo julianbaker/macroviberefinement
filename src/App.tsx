@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { CrtWebglOverlay } from "./CrtWebglOverlay";
+import { CrtWebglOverlay, CRT_CURVATURE } from "./CrtWebglOverlay";
 import type { CursorType } from "./CrtWebglOverlay";
 import { AlignmentReport } from "./AlignmentReport";
 import { AudioEngine } from "./AudioEngine";
@@ -823,32 +823,82 @@ export function App() {
     };
   }, [isDragging, startThrowAnimation]);
 
-  const handleCellPointerDown = (event: ReactPointerEvent<HTMLElement>, cell: Cell) => {
-    if (isDragging || (throwState !== null && throwState.cellId === cell.index) || placedBins[cell.index] !== undefined) {
-      return;
+  // Grid-level pointer-down handler with CRT-corrected hit testing.
+  // The CRT shader visually shifts cells toward the screen centre by up to
+  // ~20px at the edges, so clicks on visual cells can miss the DOM hit areas.
+  // Applying the forward CRT mapping to the click position converts it to the
+  // equivalent source-canvas coordinate, which matches the cell layout data.
+  const handleGridPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    // Use the ref (set synchronously on drop) so rapid re-grabs aren't blocked
+    // by a stale React state value that hasn't re-rendered yet.
+    if (dragRef.current !== null) return;
+
+    const frameRect = frameRef.current?.getBoundingClientRect();
+    if (!frameRect) return;
+
+    // Forward CRT mapping: real screen click → source-canvas equivalent position
+    const clickFrameX = event.clientX - frameRect.left;
+    const clickFrameY = event.clientY - frameRect.top;
+    const uvX = clickFrameX / frameRect.width;
+    const uvY = 1.0 - clickFrameY / frameRect.height;
+    const cxc = uvX * 2.0 - 1.0;
+    const cyc = uvY * 2.0 - 1.0;
+    const distc = cxc * cxc + cyc * cyc;
+    const sc = 1.0 + distc * (CRT_CURVATURE * 0.25);
+    const srcFrameX = (cxc * sc * 0.5 + 0.5) * frameRect.width;
+    const srcFrameY = (1.0 - (cyc * sc * 0.5 + 0.5)) * frameRect.height;
+
+    // Convert to grid-relative source coordinates
+    const gridSrcX = srcFrameX - gridViewport.x;
+    const gridSrcY = srcFrameY - gridViewport.y;
+
+    // Find the cell whose layout centre is closest to the corrected click
+    let bestCell: Cell | null = null;
+    let bestDist = Infinity;
+    const HIT_PAD = 8;
+
+    for (const cellId of activeCellIds) {
+      const cell = cellById[cellId];
+      const layout = displayLayoutByCell[cellId];
+      if (!cell || !layout) continue;
+      if (throwState !== null && throwState.cellId === cell.index) continue;
+      if (placedBins[cell.index] !== undefined) continue;
+
+      const scale = getCellScale(cell.index, hoveredCellId, displayLayoutByCell, false);
+      const halfW = layout.width * scale * 0.5 + HIT_PAD;
+      const halfH = layout.height * scale * 0.5 + HIT_PAD;
+
+      if (Math.abs(gridSrcX - layout.x) <= halfW && Math.abs(gridSrcY - layout.y) <= halfH) {
+        const d = Math.hypot(gridSrcX - layout.x, gridSrcY - layout.y);
+        if (d < bestDist) {
+          bestDist = d;
+          bestCell = cell;
+        }
+      }
     }
+
+    if (!bestCell) return;
 
     // Audio intentionally continues while dragging — hoverOut fires only when
     // drag ends without placement (stopAll) or placement is confirmed (hoverOut).
 
+    const cell = bestCell;
     const pickupScale = getCellScale(cell.index, hoveredCellId, displayLayoutByCell, false);
     const layout = displayLayoutByCell[cell.index];
-    const gridRect = gridRef.current?.getBoundingClientRect();
-    const fallbackRect = event.currentTarget.getBoundingClientRect();
-    const baseWidth = layout?.width ?? fallbackRect.width / pickupScale;
-    const baseHeight = layout?.height ?? fallbackRect.height / pickupScale;
+    if (!layout) return;
 
-    let originX = fallbackRect.left;
-    let originY = fallbackRect.top;
-    if (layout && gridRect) {
-      originX = gridRect.left + layout.x - (baseWidth * pickupScale) / 2;
-      originY = gridRect.top + layout.y - (baseHeight * pickupScale) / 2;
-    }
+    const baseWidth = layout.width;
+    const baseHeight = layout.height;
 
-    const clampedOffsetX = clamp((event.clientX - originX) / pickupScale, 0, baseWidth);
-    const clampedOffsetY = clamp((event.clientY - originY) / pickupScale, 0, baseHeight);
-    originX = event.clientX - clampedOffsetX * pickupScale;
-    originY = event.clientY - clampedOffsetY * pickupScale;
+    // Offset = where in the cell (source-canvas space) the user clicked.
+    // Using CRT-corrected source coords gives stable hotspot alignment when
+    // the item is rendered back through forward CRT mapping in drawSourceSurface.
+    const cellOriginSrcX = gridViewport.x + layout.x - baseWidth * pickupScale * 0.5;
+    const cellOriginSrcY = gridViewport.y + layout.y - baseHeight * pickupScale * 0.5;
+    const clampedOffsetX = clamp((srcFrameX - cellOriginSrcX) / pickupScale, 0, baseWidth);
+    const clampedOffsetY = clamp((srcFrameY - cellOriginSrcY) / pickupScale, 0, baseHeight);
+    const originX = event.clientX - clampedOffsetX * pickupScale;
+    const originY = event.clientY - clampedOffsetY * pickupScale;
 
     if (cellLeaveTimeoutRef.current !== null) {
       clearTimeout(cellLeaveTimeoutRef.current);
@@ -933,6 +983,7 @@ export function App() {
           <section
             className="frame-row frame-grid"
             aria-label="Refine Grid"
+            onPointerDown={handleGridPointerDown}
             onPointerMove={(event) => {
               const rect = gridRef.current?.getBoundingClientRect();
               if (!rect) {
@@ -1025,7 +1076,7 @@ export function App() {
                     }}
                   >
                     <span className="cell-wobble" style={wobbleStyle}>
-                      <span className="cell-shell" onPointerDown={(event) => handleCellPointerDown(event, cell)}>
+                      <span className="cell-shell">
                         <span className="cell-code">{cell.code}</span>
                       </span>
                     </span>
@@ -1190,7 +1241,6 @@ export function App() {
             cells={cells}
             placedBins={placedBins}
             sessionToken={sessionToken}
-            onClose={() => setShowAlignment(false)}
             onNewFile={() => {
               setShowAlignment(false);
               resetFile();

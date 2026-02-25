@@ -27,6 +27,8 @@ export type SurfaceDragRender = {
   height: number;
   scale: number;
   opacity?: number;
+  offsetX?: number;
+  offsetY?: number;
 };
 
 export type SurfaceDragLiveRender = SurfaceDragRender & { overBin: number | null };
@@ -54,6 +56,8 @@ type CrtWebglOverlayProps = {
   onStatusChange?: (status: "initializing" | "ready" | "failed") => void;
   cursorType?: CursorType;
 };
+
+export const CRT_CURVATURE = 0.27;
 
 const CRT_PARAMS = {
   scanlineIntensity: 0.5,
@@ -615,17 +619,32 @@ const drawSourceSurface = (
 
   const activeDrag = dragState ?? throwState;
   if (activeDrag) {
-    const x = activeDrag.x - frameLeft;
-    const y = activeDrag.y - frameTop;
     const w = activeDrag.width * activeDrag.scale;
     const h = activeDrag.height * activeDrag.scale;
+
+    // Apply forward CRT mapping to keep the drag item visually anchored to
+    // the real mouse/throw position after curvature distortion. Without this
+    // the item drifts toward the edges relative to the cursor.
+    const hotspotFrameX = activeDrag.x - frameLeft + (activeDrag.offsetX ?? w / activeDrag.scale * 0.5) * activeDrag.scale;
+    const hotspotFrameY = activeDrag.y - frameTop + (activeDrag.offsetY ?? h / activeDrag.scale * 0.5) * activeDrag.scale;
+    const uvX = hotspotFrameX / frameWidth;
+    const uvY = 1.0 - hotspotFrameY / frameHeight;
+    const cxc = uvX * 2.0 - 1.0;
+    const cyc = uvY * 2.0 - 1.0;
+    const distc = cxc * cxc + cyc * cyc;
+    const sc = 1.0 + distc * (CRT_CURVATURE * 0.25);
+    const mappedHotX = (cxc * sc * 0.5 + 0.5) * frameWidth;
+    const mappedHotY = (1.0 - (cyc * sc * 0.5 + 0.5)) * frameHeight;
+    const drawCenterX = mappedHotX - (activeDrag.offsetX ?? w / activeDrag.scale * 0.5) * activeDrag.scale + w * 0.5;
+    const drawCenterY = mappedHotY - (activeDrag.offsetY ?? h / activeDrag.scale * 0.5) * activeDrag.scale + h * 0.5;
+
     const size = Math.max(11, activeDrag.height * 0.44 * activeDrag.scale);
     ctx.globalAlpha = Math.max(0, Math.min(1, activeDrag.opacity ?? 1));
     ctx.fillStyle = "rgba(190,238,255,0.94)";
     ctx.font = `600 ${size}px "IBM Plex Mono", monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(activeDrag.code, x + w * 0.5, y + h * 0.5);
+    ctx.fillText(activeDrag.code, drawCenterX, drawCenterY);
     ctx.globalAlpha = 1;
   }
 };

@@ -326,9 +326,15 @@ async function runIngest(): Promise<Response> {
       }
     }
 
-    const missingMetadataIds = Array.from(
+    const snapshotTrackIds = Array.from(
       new Set(Array.from(snapshotMap.values()).map((entry) => entry.track_id)),
-    ).filter((trackId) => !trackMap.has(trackId));
+    );
+    const missingMetadataIds = snapshotTrackIds.filter((trackId) => {
+      const existing = trackMap.get(trackId);
+      // Playlist payloads are often partial; re-hydrate any track missing genre
+      // so podcast exclusion can be enforced from canonical track metadata.
+      return !existing || existing.genre === null;
+    });
 
     const batchSize = 50;
     for (let index = 0; index < missingMetadataIds.length; index += batchSize) {

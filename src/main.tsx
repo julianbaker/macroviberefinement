@@ -53,7 +53,6 @@ if (previewParam === "alignment") {
         placedBins={mockPlacedBins}
         sessionToken="preview"
         overrideResults={mockResults}
-        onClose={() => location.assign("/")}
         onNewFile={() => location.assign("/")}
       />
     </StrictMode>,

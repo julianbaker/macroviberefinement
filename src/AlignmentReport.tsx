@@ -20,10 +20,6 @@ type BinStat = {
 };
 
 type ButtonLayout = {
-  closeX: number;
-  closeY: number;
-  closeW: number;
-  closeH: number;
   newFileX: number;
   newFileY: number;
   newFileW: number;
@@ -35,7 +31,6 @@ type AlignmentReportProps = {
   placedBins: Record<number, number>;
   sessionToken: string;
   onNewFile: () => void;
-  onClose: () => void;
   /** Dev/preview only — skips the API fetch and uses this data directly. */
   overrideResults?: SessionResultTrack[];
 };
@@ -76,7 +71,6 @@ export function AlignmentReport({
   placedBins,
   sessionToken,
   onNewFile,
-  onClose,
   overrideResults,
 }: AlignmentReportProps) {
   const frameRef = useRef<HTMLElement | null>(null);
@@ -343,45 +337,26 @@ export function AlignmentReport({
       ctx.lineTo(frameWidth - pad, div3Y);
       ctx.stroke();
 
-      // ── Buttons ───────────────────────────────────────────────────────────
+      // ── Button (single, centred) ───────────────────────────────────────────
       const btnFontSize = Math.max(14, Math.min(18, frameHeight * 0.030));
       const btnH = Math.max(36, buttonAreaH * 0.60);
       const btnY = div3Y + (frameHeight - div3Y) * 0.5 - btnH * 0.5;
-      const btnW = Math.min(220, frameWidth * 0.30);
-      const gapBetweenBtns = frameWidth * 0.06;
-      const totalBtnsW = btnW * 2 + gapBetweenBtns;
-      const btnsStartX = frameWidth * 0.5 - totalBtnsW * 0.5;
+      const btnW = Math.min(280, frameWidth * 0.38);
+      const newFileX = frameWidth * 0.5 - btnW * 0.5;
 
-      const closeX = btnsStartX;
-      const newFileX = btnsStartX + btnW + gapBetweenBtns;
-
-      // CLOSE button
-      ctx.strokeStyle = "rgba(190,238,255,0.44)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(closeX + 0.5, btnY + 0.5, btnW - 1, btnH - 1);
-      ctx.fillStyle = "rgba(5,16,33,0.88)";
-      ctx.fillRect(closeX + 1, btnY + 1, btnW - 2, btnH - 2);
-      ctx.font = `600 ${btnFontSize}px "IBM Plex Mono", monospace`;
-      ctx.fillStyle = "rgba(190,238,255,0.72)";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("CLOSE", closeX + btnW * 0.5, btnY + btnH * 0.5);
-
-      // START NEW FILE button
       ctx.strokeStyle = "rgba(190,238,255,0.44)";
       ctx.lineWidth = 1;
       ctx.strokeRect(newFileX + 0.5, btnY + 0.5, btnW - 1, btnH - 1);
       ctx.fillStyle = "rgba(5,16,33,0.88)";
       ctx.fillRect(newFileX + 1, btnY + 1, btnW - 2, btnH - 2);
+      ctx.font = `600 ${btnFontSize}px "IBM Plex Mono", monospace`;
       ctx.fillStyle = "rgba(190,238,255,0.94)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       ctx.fillText("START NEW FILE", newFileX + btnW * 0.5, btnY + btnH * 0.5);
 
-      // Publish button layout for DOM overlay alignment
+      // Store layout for DOM overlay alignment
       const layout: ButtonLayout = {
-        closeX,
-        closeY: btnY,
-        closeW: btnW,
-        closeH: btnH,
         newFileX,
         newFileY: btnY,
         newFileW: btnW,
@@ -389,12 +364,11 @@ export function AlignmentReport({
       };
       if (
         !buttonLayoutRef.current ||
-        buttonLayoutRef.current.closeX !== layout.closeX ||
-        buttonLayoutRef.current.closeY !== layout.closeY ||
-        buttonLayoutRef.current.closeW !== layout.closeW
+        buttonLayoutRef.current.newFileX !== layout.newFileX ||
+        buttonLayoutRef.current.newFileY !== layout.newFileY ||
+        buttonLayoutRef.current.newFileW !== layout.newFileW
       ) {
         buttonLayoutRef.current = layout;
-        // Defer state update to avoid mid-draw React re-render
         Promise.resolve().then(() => setButtonLayout({ ...layout }));
       }
     },
@@ -409,44 +383,26 @@ export function AlignmentReport({
           className={`refine-frame${crtStatus === "ready" ? " refine-frame-proxy" : ""}`}
           aria-label="Alignment Report"
         >
-          {/* Invisible button tap anchors — aligned to CRT-drawn button positions */}
+          {/* Invisible button tap anchor — aligned to CRT-drawn button position */}
           {buttonLayout && frameSize.width > 0 && (
-            <>
-              <button
-                type="button"
-                aria-label="Close alignment report"
-                onClick={onClose}
-                onPointerEnter={() => setHoveredButton(true)}
-                onPointerLeave={() => setHoveredButton(false)}
-                style={{
-                  position: "absolute",
-                  left: buttonLayout.closeX,
-                  top: buttonLayout.closeY,
-                  width: buttonLayout.closeW,
-                  height: buttonLayout.closeH,
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                }}
-              />
-              <button
-                type="button"
-                aria-label="Start new file"
-                onClick={onNewFile}
-                onPointerEnter={() => setHoveredButton(true)}
-                onPointerLeave={() => setHoveredButton(false)}
-                style={{
-                  position: "absolute",
-                  left: buttonLayout.newFileX,
-                  top: buttonLayout.newFileY,
-                  width: buttonLayout.newFileW,
-                  height: buttonLayout.newFileH,
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                }}
-              />
-            </>
+            <button
+              type="button"
+              aria-label="Start new file"
+              onClick={onNewFile}
+              onPointerEnter={() => setHoveredButton(true)}
+              onPointerLeave={() => setHoveredButton(false)}
+              style={{
+                position: "absolute",
+                left: buttonLayout.newFileX,
+                top: buttonLayout.newFileY,
+                width: buttonLayout.newFileW,
+                height: buttonLayout.newFileH,
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+              }}
+            />
           )}
 
           {/* DOM fallback when WebGL hasn't initialised or failed */}
@@ -463,15 +419,6 @@ export function AlignmentReport({
                 <p className="alignment-report-fallback-score">{overallPct}% ALIGNED</p>
               )}
               <div className="alignment-report-fallback-buttons">
-                <button
-                  type="button"
-                  className="completion-button"
-                  onClick={onClose}
-                  onPointerEnter={() => setHoveredButton(true)}
-                  onPointerLeave={() => setHoveredButton(false)}
-                >
-                  CLOSE
-                </button>
                 <button
                   type="button"
                   className="completion-button"

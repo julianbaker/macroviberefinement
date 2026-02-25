@@ -79,7 +79,7 @@ async function apiFetch<T>(
   };
 
   try {
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...options, headers, cache: "no-store" });
     const json = await response.json().catch(() => ({}));
 
     if (!response.ok) {

@@ -158,4 +158,36 @@ if (!baseUrl) {
       assert.equal(typeof first.streamUrl, 'string');
     }
   });
+
+  test('GET /api/v1/session/results returns session track consensus shape', async () => {
+    const initResult = await fetchJson('/api/v1/session/init?device=mobile&reset=1', {
+      method: 'GET',
+    });
+
+    if (initResult.response.status !== 200) {
+      assert.equal(initResult.response.status, 503);
+      assert.equal(initResult.data?.error?.code, 'INSUFFICIENT_POOL');
+      return;
+    }
+
+    const sessionToken = initResult.data.sessionToken;
+    assert.ok(sessionToken);
+
+    const { response, data } = await fetchJson('/api/v1/session/results', {
+      method: 'GET',
+      headers: {
+        'x-session-token': sessionToken,
+      },
+    });
+
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(data?.tracks));
+    assert.equal(data.tracks.length, initResult.data.tracks.length);
+
+    if (data.tracks.length > 0) {
+      const first = data.tracks[0];
+      assert.equal(typeof first.trackId, 'string');
+      assert.ok(first.consensusBin === null || typeof first.consensusBin === 'string');
+    }
+  });
 }
