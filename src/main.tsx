@@ -29,7 +29,7 @@ if (previewParam === "alignment") {
   // VELLUM: 10/12 match, BRINE: 6/8 match, HEAT: 13/14 match,
   // STATIC: 2/4 match (2 null), HALO: 11/16 match (3 null), GRIT: 7/10 match
   const matchCounts = [10, 6, 13, 2, 11, 7];
-  const nullCounts  = [ 0, 0,  0, 2,  3, 0];
+  const nullCounts = [0, 0, 0, 2, 3, 0];
   const mockResults = mockCells.map((cell) => {
     const binIdx = mockPlacedBins[cell.index];
     const binCode = BIN_CODES[binIdx];
@@ -59,7 +59,7 @@ if (previewParam === "alignment") {
   );
 } else {
   // Normal flow
-  const isMobile = window.innerWidth <= 540;
+  const isMobile = window.innerWidth <= 700;
 
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
