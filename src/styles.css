@@ -529,6 +529,8 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  /* Ensure canvas never captures clicks (Chrome/macOS can hit-test canvas above parent in some cases) */
+  pointer-events: none;
 }
 
 @keyframes cell-float {
@@ -616,11 +618,14 @@ body {
   display: grid;
   place-items: center;
   background: #051021;
+  /* Explicit so the overlay always receives clicks (avoids opacity:0 quirks in some browsers) */
+  pointer-events: auto;
 }
 
-/* Transparent click-layer — CRT draws the visual beneath */
+/* Transparent: overlay no longer a hit target so clicks outside the button pass through to the CRT beneath. Only interactive descendants (e.g. .gate-button) have pointer-events: auto. */
 .audio-gate-overlay--transparent {
   opacity: 0;
+  pointer-events: none;
 }
 
 /* Gate elements use absolute positioning to match canvas coordinates exactly.
@@ -630,6 +635,7 @@ body {
 .gate-lockup {
   position: absolute;
   inset: 0;
+  pointer-events: none; /* only .gate-button captures when overlay is transparent */
 }
 
 /* Logo in the upper portion of the gate screen.
@@ -653,6 +659,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .gate-button {
@@ -662,6 +669,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(360px, 54%);
+  min-width: 200px; /* keep tap target usable on narrow viewports */
   height: 52px;
 
   border: 1px solid var(--on-56);
@@ -672,6 +680,10 @@ body {
   font-weight: 600;
   letter-spacing: 0.22em;
   cursor: pointer;
+  /* Only interactive element in gate when overlay is transparent; must be auto so clicks reach the button */
+  pointer-events: auto;
+  /* Remove 300ms tap delay on touch devices so the first tap reliably fires */
+  touch-action: manipulation;
   transition:
     border-color 130ms linear,
     color 130ms linear,
@@ -696,6 +708,7 @@ body {
   gap: 0.9rem;
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.12em;
+  pointer-events: none; /* when overlay is transparent, clicks pass through to CRT beneath */
 }
 
 .preload-label {

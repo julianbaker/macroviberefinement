@@ -116,6 +116,23 @@ export const api = {
     );
   },
 
+  sessionReplaceTrack(
+    sessionToken: string,
+    position: number,
+    excludeTrackIds?: string[],
+  ): Promise<ApiResult<SessionTrack>> {
+    const params = new URLSearchParams();
+    params.set("position", String(position));
+    if (excludeTrackIds?.length) {
+      params.set("exclude", excludeTrackIds.join(","));
+    }
+    return apiFetch<SessionTrack>(
+      `${API_BASE_PATH}/session/replace?${params.toString()}`,
+      undefined,
+      sessionToken,
+    );
+  },
+
   submitPlacement(request: PlacementRequest): Promise<ApiResult<{ ok: boolean }>> {
     return apiFetch<{ ok: boolean }>(
       `${API_BASE_PATH}/placements`,

@@ -14,6 +14,12 @@ type InitRow = {
   degraded: boolean;
 };
 
+type ReplaceTrackRow = {
+  track_id: string;
+  artwork_url: string | null;
+  seed: string;
+};
+
 type PlacementRow = {
   status: string;
   error_code: string | null;
@@ -189,6 +195,68 @@ async function handleSessionInit(
       artworkUrl: row.artwork_url,
       seed: row.seed,
     })),
+  });
+}
+
+async function handleSessionReplaceTrack(
+  req: Request,
+  config: RuntimeConfig,
+  supabase: ReturnType<typeof createClient>,
+): Promise<Response> {
+  const tokenResolution = await resolveSessionToken(req);
+  if (!tokenResolution.ok) {
+    return errorResponse(tokenResolution.code, tokenResolution.message);
+  }
+  const sessionToken = tokenResolution.sessionToken;
+
+  const url = new URL(req.url);
+  const positionParam = url.searchParams.get("position");
+  // Reject floats and other non-integer strings; parseInt("3.5", 10) => 3 would otherwise be accepted
+  const position =
+    positionParam !== null && /^\d+$/.test(positionParam)
+      ? parseInt(positionParam, 10)
+      : NaN;
+  if (Number.isNaN(position) || position < 0) {
+    return errorResponse("BAD_REQUEST", "Query parameter position must be a non-negative integer.");
+  }
+
+  const excludeParam = url.searchParams.get("exclude");
+  const excludeTrackIds: string[] =
+    excludeParam !== null && excludeParam !== ""
+      ? excludeParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+
+  const rpcResult = await supabase.rpc("api_v1_session_replace_track", {
+    p_session_token: sessionToken,
+    p_position: position,
+    p_exclude_track_ids: excludeTrackIds,
+  });
+
+  if (rpcResult.error) {
+    if (rpcResult.error.message.includes("SESSION_NOT_FOUND")) {
+      return errorResponse("BAD_REQUEST", "Session not found.");
+    }
+    if (rpcResult.error.message.includes("NO_REPLACEMENT_AVAILABLE")) {
+      return errorResponse("NO_REPLACEMENT_AVAILABLE", "No replacement track available.");
+    }
+    if (rpcResult.error.message.includes("INVALID_POSITION")) {
+      return errorResponse("BAD_REQUEST", "Invalid position.");
+    }
+    console.error("session replace track rpc error", rpcResult.error);
+    return errorResponse("SERVER_ERROR");
+  }
+
+  const rows = (rpcResult.data ?? []) as ReplaceTrackRow[];
+  const row = rows[0];
+  if (!row) {
+    return errorResponse("SERVER_ERROR");
+  }
+
+  return jsonResponse({
+    trackId: row.track_id,
+    streamUrl: buildStreamUrl(config.audiusApiBaseUrl, row.track_id),
+    artworkUrl: row.artwork_url,
+    seed: row.seed,
   });
 }
 
@@ -430,6 +498,17 @@ Deno.serve(async (req) => {
         return errorResponse("BAD_REQUEST", "Method not allowed.");
       }
       return await handleSessionInit(req, config, supabase);
+    }
+
+    if (apiPath.startsWith(`${config.apiBasePath}/session/replace`)) {
+      const replacePath = `${config.apiBasePath}/session/replace`;
+      if (apiPath !== replacePath && apiPath !== `${replacePath}/`) {
+        return errorResponse("NOT_FOUND");
+      }
+      if (req.method !== "GET") {
+        return errorResponse("BAD_REQUEST", "Method not allowed.");
+      }
+      return await handleSessionReplaceTrack(req, config, supabase);
     }
 
     if (apiPath === `${config.apiBasePath}/placements`) {

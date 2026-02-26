@@ -81,12 +81,13 @@ export class AudioEngine {
     onProgress: (loaded: number, total: number) => void,
     onUpgradeProgress?: (upgraded: number, upgradeTotal: number) => void,
     concurrency = PRELOAD_CONCURRENCY,
-  ): Promise<void> {
+  ): Promise<{ failedTrackIds: string[] }> {
     const tracksWithUrls = tracks.filter((t) => t.streamUrl);
     const total = tracksWithUrls.length;
-    if (total === 0) return;
+    if (total === 0) return { failedTrackIds: [] };
 
     let loaded = 0;
+    const failedTrackIds: string[] = [];
 
     // ── Phase 1 (gate blocks): partial fetch, first 512 KB per track ─────────
     // Retries: 2 attempts with 800 ms / 1.6 s back-off to stay gate-friendly.
@@ -119,8 +120,10 @@ export class AudioEngine {
           const ab = await res.arrayBuffer();
           const buffer = await this.ctx.decodeAudioData(ab);
           this.buffers.set(track.trackId, buffer);
+          decoded = true;
         } catch {
-          // All retries exhausted — hover will be silent for this cell only
+          // All retries exhausted — record for replacement
+          failedTrackIds.push(track.trackId);
         }
       }
 
@@ -141,7 +144,7 @@ export class AudioEngine {
     // ── Phase 2 (background): upgrade each partial to full audio ─────────────
     // Fire-and-forget — gate is already open. Buffers swap in-place; next
     // hoverIn after an upgrade gets the full track automatically.
-    if (!onUpgradeProgress) return;
+    if (!onUpgradeProgress) return { failedTrackIds };
 
     let upgraded = 0;
     const upgradeTotal = tracksWithUrls.length;
@@ -165,6 +168,7 @@ export class AudioEngine {
         }
       }),
     );
+    return { failedTrackIds };
   }
 
   hoverIn(trackId: string): void {

@@ -98,18 +98,20 @@ const makeCode = (seed: string): string => {
   return Math.abs(hash).toString(36).toUpperCase().slice(0, 4).padEnd(4, "0");
 };
 
+const buildCellFromTrack = (track: SessionTrack, index: number): Cell => ({
+  index,
+  trackId: track.trackId,
+  code: makeCode(track.seed),
+  driftBaseX: (((index * 13) % 7) - 3) * 1.45,
+  driftBaseY: (((index * 17) % 7) - 3) * 1.28,
+  floatX: ((index * 7) % 5) * 0.85 + 0.9,
+  floatY: ((index * 11) % 4) * 0.9 + 0.95,
+  floatDuration: 2.4 + ((index * 3) % 8) * 0.22,
+  floatDelay: ((index * 5) % 17) * 0.14,
+});
+
 const buildCellsFromTracks = (tracks: SessionTrack[]): Cell[] =>
-  tracks.map((track, index) => ({
-    index,
-    trackId: track.trackId,
-    code: makeCode(track.seed),
-    driftBaseX: (((index * 13) % 7) - 3) * 1.45,
-    driftBaseY: (((index * 17) % 7) - 3) * 1.28,
-    floatX: ((index * 7) % 5) * 0.85 + 0.9,
-    floatY: ((index * 11) % 4) * 0.9 + 0.95,
-    floatDuration: 2.4 + ((index * 3) % 8) * 0.22,
-    floatDelay: ((index * 5) % 17) * 0.14,
-  }));
+  tracks.map((track, index) => buildCellFromTrack(track, index));
 
 const FLUID_SLOTS = (() => {
   const slots: Array<{ x: number; y: number }> = [];
@@ -266,13 +268,20 @@ export function App() {
     setHoveredButton(false);
   }, [audioPhase, isComplete]);
 
-  const cursorType: CursorType = isDragging
-    ? "grabbing"
-    : hoveredCellId !== null
-      ? "grab"
-      : hoveredBinPlaylist !== null || hoveredButton
-        ? "pointer"
-        : "default";
+  // During gate/preload only the gate button receives pointer events (overlay is pointer-events: none).
+  // Ignore grid/bin hover so we don't show grab/pointer from content beneath the transparent overlay.
+  const inGatePhase = audioPhase === "locked" || audioPhase === "preloading";
+  const cursorType: CursorType = inGatePhase
+    ? hoveredButton
+      ? "pointer"
+      : "default"
+    : isDragging
+      ? "grabbing"
+      : hoveredCellId !== null
+        ? "grab"
+        : hoveredBinPlaylist !== null || hoveredButton
+          ? "pointer"
+          : "default";
 
   const cellById = useMemo(() => {
     const map: Record<number, Cell> = {};
@@ -371,7 +380,7 @@ export function App() {
 
     // Phase 1 (gate blocks): partial fetch ~512 KB per track → real audio
     // Phase 2 (background): full file swaps in per-track, gate already open
-    await engine.preload(
+    const { failedTrackIds } = await engine.preload(
       trackMetas,
       (loaded, total) => setPreloadProgress({ loaded, total }),
       (upgraded, upgradeTotal) => {
@@ -379,6 +388,86 @@ export function App() {
         setBgLoad(upgraded < upgradeTotal ? { upgraded, total: upgradeTotal } : null);
       },
     );
+
+    // Replace failed tracks during preload so every cell is playable before gate opens
+    if (failedTrackIds.length > 0 && sessionGenRef.current === gen) {
+      const failedIndices = failedTrackIds
+        .map((id) => tracks.findIndex((t) => t.trackId === id))
+        .filter((i) => i >= 0);
+      const replacements: Array<{ index: number; track: SessionTrack }> = [];
+      for (const index of failedIndices) {
+        const result = await api.sessionReplaceTrack(token, index, failedTrackIds);
+        if (sessionGenRef.current !== gen) return;
+        if (result.ok) {
+          replacements.push({ index, track: result.data });
+        }
+      }
+      if (replacements.length > 0 && sessionGenRef.current === gen) {
+        setCells((prev) => {
+          const next = [...prev];
+          for (const { index, track } of replacements) {
+            next[index] = buildCellFromTrack(track, index);
+          }
+          return next;
+        });
+        const replacementMetas: TrackMeta[] = replacements.map((r) => ({
+          trackId: r.track.trackId,
+          streamUrl: r.track.streamUrl || null,
+          durationSec: 0,
+        }));
+        const { failedTrackIds: replacementFailedTrackIds } = await engine.preload(
+          replacementMetas,
+          (loaded, total) => setPreloadProgress({ loaded: tracks.length - failedTrackIds.length + loaded, total: tracks.length }),
+          undefined,
+        );
+        if (sessionGenRef.current !== gen) return;
+
+        // One retry round for replacements that failed to load
+        if (replacementFailedTrackIds.length > 0 && sessionGenRef.current === gen) {
+          // Correct progress to actual loaded count so the bar does not jump backwards
+          const actualLoaded =
+            tracks.length - failedTrackIds.length + (replacements.length - replacementFailedTrackIds.length);
+          setPreloadProgress({ loaded: actualLoaded, total: tracks.length });
+
+          const retryExclude = [...failedTrackIds, ...replacementFailedTrackIds];
+          const retryIndices = replacements
+            .filter((r) => replacementFailedTrackIds.includes(r.track.trackId))
+            .map((r) => r.index);
+          const retryReplacements: Array<{ index: number; track: SessionTrack }> = [];
+          for (const index of retryIndices) {
+            const result = await api.sessionReplaceTrack(token, index, retryExclude);
+            if (sessionGenRef.current !== gen) return;
+            if (result.ok) {
+              retryReplacements.push({ index, track: result.data });
+            }
+          }
+          if (retryReplacements.length > 0 && sessionGenRef.current === gen) {
+            setCells((prev) => {
+              const next = [...prev];
+              for (const { index, track } of retryReplacements) {
+                next[index] = buildCellFromTrack(track, index);
+              }
+              return next;
+            });
+            const retryMetas: TrackMeta[] = retryReplacements.map((r) => ({
+              trackId: r.track.trackId,
+              streamUrl: r.track.streamUrl || null,
+              durationSec: 0,
+            }));
+            await engine.preload(
+              retryMetas,
+              (loaded, total) =>
+                setPreloadProgress({
+                  loaded: tracks.length - failedTrackIds.length + (replacements.length - replacementFailedTrackIds.length) + loaded,
+                  total: tracks.length,
+                }),
+              undefined,
+            );
+            if (sessionGenRef.current !== gen) return;
+          }
+        }
+      }
+    }
 
     engine.startSession();
     setAudioPhase("ready");
