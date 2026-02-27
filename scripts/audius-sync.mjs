@@ -72,6 +72,133 @@ async function withRetry(label, fn, { maxRetries = 3, baseDelayMs = 2000 } = {})
   throw lastErr;
 }
 
+function getErrorMessage(err) {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (err.message) return err.message;
+  return JSON.stringify(err);
+}
+
+function isAlreadySocialActionError(err) {
+  const message = getErrorMessage(err).toLowerCase();
+  return (
+    message.includes("already") &&
+    (message.includes("save") ||
+      message.includes("favorite") ||
+      message.includes("repost") ||
+      message.includes("exists") ||
+      message.includes("duplicate"))
+  );
+}
+
+function chunkArray(values, chunkSize = 200) {
+  const chunks = [];
+  for (let i = 0; i < values.length; i += chunkSize) {
+    chunks.push(values.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function loadEngagementMap(trackIds) {
+  const byTrackId = new Map();
+  for (const trackIdChunk of chunkArray(trackIds)) {
+    const { data, error } = await supabase
+      .from("audius_track_engagements")
+      .select("track_id, favorited_at, reposted_at")
+      .in("track_id", trackIdChunk);
+    if (error) throw new Error(`Failed to load engagement state: ${error.message}`);
+    for (const row of data ?? []) {
+      byTrackId.set(row.track_id, row);
+    }
+  }
+  return byTrackId;
+}
+
+async function ensureTrackEngagement(trackIds) {
+  const targetTrackIds = [...new Set(trackIds)].filter(Boolean);
+  if (targetTrackIds.length === 0) {
+    return { favorited: 0, reposted: 0, failed: 0 };
+  }
+
+  const engagementMap = await loadEngagementMap(targetTrackIds);
+  let favorited = 0;
+  let reposted = 0;
+  let failed = 0;
+
+  for (const trackId of targetTrackIds) {
+    const engagementRow = engagementMap.get(trackId);
+    let favoritedAt = engagementRow?.favorited_at ?? null;
+    let repostedAt = engagementRow?.reposted_at ?? null;
+    const hadFavoritedAt = Boolean(favoritedAt);
+    const hadRepostedAt = Boolean(repostedAt);
+    let attemptedSocialAction = false;
+
+    if (!hadFavoritedAt) {
+      attemptedSocialAction = true;
+      try {
+        await withRetry(`favorite:${trackId}`, () =>
+          audiusSdk.tracks.favoriteTrack({
+            userId: config.audiusManagedUserId,
+            trackId,
+          })
+        );
+        favoritedAt = new Date().toISOString();
+        favorited++;
+        logEvent("audius_track_favorited", { trackId });
+      } catch (err) {
+        if (isAlreadySocialActionError(err)) {
+          favoritedAt = new Date().toISOString();
+          logEvent("audius_track_favorite_exists", { trackId, error: getErrorMessage(err) });
+        } else {
+          logEvent("audius_track_favorite_fail", { trackId, error: getErrorMessage(err) });
+          failed++;
+        }
+      }
+    }
+
+    if (!hadRepostedAt) {
+      attemptedSocialAction = true;
+      try {
+        await withRetry(`repost:${trackId}`, () =>
+          audiusSdk.tracks.repostTrack({
+            userId: config.audiusManagedUserId,
+            trackId,
+          })
+        );
+        repostedAt = new Date().toISOString();
+        reposted++;
+        logEvent("audius_track_reposted", { trackId });
+      } catch (err) {
+        if (isAlreadySocialActionError(err)) {
+          repostedAt = new Date().toISOString();
+          logEvent("audius_track_repost_exists", { trackId, error: getErrorMessage(err) });
+        } else {
+          logEvent("audius_track_repost_fail", { trackId, error: getErrorMessage(err) });
+          failed++;
+        }
+      }
+    }
+
+    if ((favoritedAt && !hadFavoritedAt) || (repostedAt && !hadRepostedAt)) {
+      const { error: engagementUpsertError } = await supabase.from("audius_track_engagements").upsert({
+        track_id: trackId,
+        favorited_at: favoritedAt,
+        reposted_at: repostedAt,
+      });
+      if (engagementUpsertError) {
+        logEvent("audius_track_engagement_upsert_fail", { trackId, error: engagementUpsertError.message });
+        failed++;
+      }
+    }
+
+    if (attemptedSocialAction) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
+
+  return { favorited, reposted, failed };
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 async function runSetup() {
@@ -119,6 +246,8 @@ async function runSync() {
   let tracksAdded = 0;
   let tracksRemoved = 0;
   let tracksMoved = 0;
+  let tracksFavorited = 0;
+  let tracksReposted = 0;
   let failedOps = 0;
 
   logEvent("audius_sync_start", { startedAt });
@@ -151,6 +280,7 @@ async function runSync() {
     if (publishedError) throw new Error(`Failed to load published tracks: ${publishedError.message}`);
 
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
+    const publishedFinal = new Map(published);
 
     // Evict tracks that have been deleted or unlisted on Audius.
     // Check both desired AND published tracks:
@@ -288,6 +418,7 @@ async function runSync() {
     for (const { trackId, binCode } of toRemove) {
       if (successfullyEvicted.has(trackId)) {
         await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
+        publishedFinal.delete(trackId);
         tracksRemoved++;
       }
     }
@@ -314,10 +445,12 @@ async function runSync() {
           bin_code: newBinCode,
           published_at: new Date().toISOString(),
         });
+        publishedFinal.set(trackId, newBinCode);
         tracksMoved++;
       } catch (err) {
         // Eviction succeeded but add failed — clear published record so next run retries the add
         await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
+        publishedFinal.delete(trackId);
         logEvent("audius_track_add_fail", { trackId, binCode: newBinCode, error: err.message });
         failedOps++;
       }
@@ -340,12 +473,19 @@ async function runSync() {
           bin_code: binCode,
           published_at: new Date().toISOString(),
         });
+        publishedFinal.set(trackId, binCode);
         tracksAdded++;
       } catch (err) {
         logEvent("audius_track_add_fail", { trackId, binCode, error: err.message });
         failedOps++;
       }
     }
+
+    // Ensure managed account favorites + reposts every track currently in managed playlists.
+    const engagement = await ensureTrackEngagement([...publishedFinal.keys()]);
+    tracksFavorited = engagement.favorited;
+    tracksReposted = engagement.reposted;
+    failedOps += engagement.failed;
 
     const healthy = failedOps === 0;
 
@@ -356,10 +496,26 @@ async function runSync() {
       tracks_added: tracksAdded,
       tracks_removed: tracksRemoved,
       tracks_moved: tracksMoved,
-      metadata: { failedOps, desiredCount: desired.size, publishedCount: published.size, deletedOnAudius: deletedOnAudius.size },
+      metadata: {
+        failedOps,
+        desiredCount: desired.size,
+        publishedCount: published.size,
+        publishedFinalCount: publishedFinal.size,
+        tracksFavorited,
+        tracksReposted,
+        deletedOnAudius: deletedOnAudius.size,
+      },
     });
 
-    logEvent("audius_sync_complete", { healthy, tracksAdded, tracksRemoved, tracksMoved, failedOps });
+    logEvent("audius_sync_complete", {
+      healthy,
+      tracksAdded,
+      tracksRemoved,
+      tracksMoved,
+      tracksFavorited,
+      tracksReposted,
+      failedOps,
+    });
 
     if (!healthy) process.exit(1);
   } catch (err) {
@@ -374,7 +530,7 @@ async function runSync() {
       tracks_moved: tracksMoved,
       error_code: "SYNC_FAILED",
       error_message: err.message,
-      metadata: { failedOps },
+      metadata: { failedOps, tracksFavorited, tracksReposted },
     });
 
     logEvent("audius_sync_error", { error: err.message });
