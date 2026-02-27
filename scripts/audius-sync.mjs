@@ -91,6 +91,11 @@ function isAlreadySocialActionError(err) {
   );
 }
 
+function isAlreadyFollowError(err) {
+  const message = getErrorMessage(err).toLowerCase();
+  return message.includes("already") && (message.includes("follow") || message.includes("relationship"));
+}
+
 function chunkArray(values, chunkSize = 200) {
   const chunks = [];
   for (let i = 0; i < values.length; i += chunkSize) {
@@ -199,6 +204,144 @@ async function ensureTrackEngagement(trackIds) {
   return { favorited, reposted, failed };
 }
 
+function extractTrackArtistUserId(track) {
+  if (!track || typeof track !== "object") return null;
+  const direct = track.user_id ?? track.owner_id ?? track.userId ?? track.ownerId;
+  if (direct !== undefined && direct !== null && direct !== "") return String(direct);
+  const nestedUser = track.user;
+  if (nestedUser && typeof nestedUser === "object") {
+    const nestedId = nestedUser.id ?? nestedUser.user_id ?? nestedUser.userId;
+    if (nestedId !== undefined && nestedId !== null && nestedId !== "") return String(nestedId);
+  }
+  return null;
+}
+
+async function loadFollowMap(artistUserIds) {
+  const followedArtistIds = new Set();
+  for (const artistChunk of chunkArray(artistUserIds)) {
+    const { data, error } = await supabase
+      .from("audius_followed_artists")
+      .select("artist_user_id")
+      .in("artist_user_id", artistChunk);
+    if (error) throw new Error(`Failed to load followed artists: ${error.message}`);
+    for (const row of data ?? []) {
+      followedArtistIds.add(row.artist_user_id);
+    }
+  }
+  return followedArtistIds;
+}
+
+async function fetchTrackSnapshot(trackId) {
+  const resp = await fetch(
+    `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=MacroVibe+Refinement`,
+    { headers: { "X-API-KEY": config.audiusApiKey } }
+  );
+  if (resp.status === 404) return { status: "missing" };
+  if (!resp.ok) return { status: "error", error: `HTTP ${resp.status}` };
+  const json = await resp.json();
+  const track = json?.data;
+  if (!track) return { status: "error", error: "Missing data payload" };
+  if (track.is_delete || track.is_unlisted || track.is_available === false) {
+    return {
+      status: "deleted",
+      reason: track.is_delete ? "is_delete" : track.is_unlisted ? "is_unlisted" : "unavailable",
+    };
+  }
+  return { status: "ok", track };
+}
+
+async function resolveTrackArtistUserId(trackId, trackArtistMap) {
+  const cached = trackArtistMap.get(trackId);
+  if (cached) return cached;
+  try {
+    const snapshot = await fetchTrackSnapshot(trackId);
+    if (snapshot.status !== "ok") return null;
+    const artistUserId = extractTrackArtistUserId(snapshot.track);
+    if (artistUserId) {
+      trackArtistMap.set(trackId, artistUserId);
+      return artistUserId;
+    }
+  } catch (err) {
+    logEvent("audius_track_artist_lookup_fail", { trackId, error: getErrorMessage(err) });
+  }
+  return null;
+}
+
+async function ensureArtistFollows(trackIds, trackArtistMap) {
+  const targetTrackIds = [...new Set(trackIds)].filter(Boolean);
+  if (targetTrackIds.length === 0) {
+    return { artistsFollowed: 0, failed: 0, uniqueArtists: 0, unresolvedTracks: 0 };
+  }
+
+  const artistUserIds = new Set();
+  let unresolvedTracks = 0;
+  for (const trackId of targetTrackIds) {
+    const artistUserId = await resolveTrackArtistUserId(trackId, trackArtistMap);
+    if (!artistUserId) {
+      unresolvedTracks++;
+      logEvent("audius_track_artist_missing", { trackId });
+      continue;
+    }
+    if (artistUserId === config.audiusManagedUserId) continue;
+    artistUserIds.add(artistUserId);
+  }
+
+  if (artistUserIds.size === 0) {
+    return { artistsFollowed: 0, failed: 0, uniqueArtists: 0, unresolvedTracks };
+  }
+
+  const followedArtistIds = await loadFollowMap([...artistUserIds]);
+  let artistsFollowed = 0;
+  let failed = 0;
+
+  for (const artistUserId of artistUserIds) {
+    if (followedArtistIds.has(artistUserId)) continue;
+
+    let attemptedFollow = false;
+    let followedAt = null;
+
+    try {
+      attemptedFollow = true;
+      await withRetry(`follow:${artistUserId}`, () =>
+        audiusSdk.users.followUser({
+          userId: config.audiusManagedUserId,
+          followeeUserId: artistUserId,
+        })
+      );
+      followedAt = new Date().toISOString();
+      artistsFollowed++;
+      logEvent("audius_artist_followed", { artistUserId });
+    } catch (err) {
+      if (isAlreadyFollowError(err)) {
+        followedAt = new Date().toISOString();
+        logEvent("audius_artist_follow_exists", { artistUserId, error: getErrorMessage(err) });
+      } else {
+        logEvent("audius_artist_follow_fail", { artistUserId, error: getErrorMessage(err) });
+        failed++;
+      }
+    }
+
+    if (followedAt) {
+      const { error: followUpsertError } = await supabase.from("audius_followed_artists").upsert({
+        artist_user_id: artistUserId,
+        followed_at: followedAt,
+      });
+      if (followUpsertError) {
+        logEvent("audius_artist_follow_upsert_fail", { artistUserId, error: followUpsertError.message });
+        failed++;
+      } else {
+        followedArtistIds.add(artistUserId);
+      }
+    }
+
+    if (attemptedFollow) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
+
+  return { artistsFollowed, failed, uniqueArtists: artistUserIds.size, unresolvedTracks };
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 async function runSetup() {
@@ -248,6 +391,7 @@ async function runSync() {
   let tracksMoved = 0;
   let tracksFavorited = 0;
   let tracksReposted = 0;
+  let artistsFollowed = 0;
   let failedOps = 0;
 
   logEvent("audius_sync_start", { startedAt });
@@ -281,6 +425,7 @@ async function runSync() {
 
     const published = new Map((publishedRows ?? []).map((r) => [r.track_id, r.bin_code]));
     const publishedFinal = new Map(published);
+    const trackArtistMap = new Map();
 
     // Evict tracks that have been deleted or unlisted on Audius.
     // Check both desired AND published tracks:
@@ -294,26 +439,24 @@ async function runSync() {
 
     for (const trackId of allTrackIds) {
       try {
-        const resp = await fetch(
-          `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=MacroVibe+Refinement`,
-          { headers: { "X-API-KEY": config.audiusApiKey } }
-        );
-        if (resp.status === 404) {
+        const snapshot = await fetchTrackSnapshot(trackId);
+        if (snapshot.status === "missing") {
           deletedOnAudius.add(trackId);
           logEvent("audius_track_deleted_on_platform", { trackId, reason: "404" });
-        } else if (resp.ok) {
-          const json = await resp.json();
-          const track = json?.data;
-          if (track?.is_delete || track?.is_unlisted || track?.is_available === false) {
-            deletedOnAudius.add(trackId);
-            logEvent("audius_track_deleted_on_platform", {
-              trackId,
-              reason: track.is_delete ? "is_delete" : track.is_unlisted ? "is_unlisted" : "unavailable",
-            });
+        } else if (snapshot.status === "deleted") {
+          deletedOnAudius.add(trackId);
+          logEvent("audius_track_deleted_on_platform", {
+            trackId,
+            reason: snapshot.reason ?? "deleted",
+          });
+        } else if (snapshot.status === "ok") {
+          const artistUserId = extractTrackArtistUserId(snapshot.track);
+          if (artistUserId) {
+            trackArtistMap.set(trackId, artistUserId);
           }
         } else {
           // Transient error (e.g. 429, 5xx) — log but don't assume deleted
-          logEvent("audius_track_status_unknown", { trackId, error: `HTTP ${resp.status}` });
+          logEvent("audius_track_status_unknown", { trackId, error: snapshot.error ?? "unknown" });
         }
       } catch (err) {
         logEvent("audius_track_status_unknown", { trackId, error: err.message });
@@ -487,6 +630,11 @@ async function runSync() {
     tracksReposted = engagement.reposted;
     failedOps += engagement.failed;
 
+    // Ensure managed account follows artists for tracks currently in managed playlists.
+    const followSync = await ensureArtistFollows([...publishedFinal.keys()], trackArtistMap);
+    artistsFollowed = followSync.artistsFollowed;
+    failedOps += followSync.failed;
+
     const healthy = failedOps === 0;
 
     await supabase.from("audius_sync_runs").insert({
@@ -503,6 +651,9 @@ async function runSync() {
         publishedFinalCount: publishedFinal.size,
         tracksFavorited,
         tracksReposted,
+        artistsFollowed,
+        followCandidates: followSync.uniqueArtists,
+        unresolvedArtistTracks: followSync.unresolvedTracks,
         deletedOnAudius: deletedOnAudius.size,
       },
     });
@@ -514,6 +665,7 @@ async function runSync() {
       tracksMoved,
       tracksFavorited,
       tracksReposted,
+      artistsFollowed,
       failedOps,
     });
 
@@ -530,7 +682,7 @@ async function runSync() {
       tracks_moved: tracksMoved,
       error_code: "SYNC_FAILED",
       error_message: err.message,
-      metadata: { failedOps, tracksFavorited, tracksReposted },
+      metadata: { failedOps, tracksFavorited, tracksReposted, artistsFollowed },
     });
 
     logEvent("audius_sync_error", { error: err.message });
