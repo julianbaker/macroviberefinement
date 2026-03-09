@@ -400,27 +400,31 @@ const drawPreloadScreen = (
   drawBackground(ctx, frameWidth, frameHeight);
 
   const cx = frameWidth * 0.5;
-  const cy = frameHeight * 0.5;
   const barW = Math.min(400, frameWidth * 0.54);
-
-  // Logo — same position as gate screen for visual continuity
-  const logoW = Math.min(260, frameWidth * 0.42);
-  const logoH = logoW / LOGO_ASPECT;
-  // Centre in upper space above the label (cy - 30 is label centre)
-  const logoTopY = (cy - 30 - logoH) * 0.45;
-  drawLogo(ctx, logoCanvas, cx, logoTopY, logoW);
   const barH = 12;
   const progress = total > 0 ? loaded / total : 0;
+
+  // Keep preload as a centered lockup, matching the gate treatment.
+  const logoW = Math.min(260, frameWidth * 0.42);
+  const logoH = logoW / LOGO_ASPECT;
+  const stackGap = 40;
+  const preloadBlockH = 72;
+  const stackH = logoH + stackGap + preloadBlockH;
+  const stackTopY = (frameHeight - stackH) * 0.5;
+  const logoTopY = stackTopY;
+  drawLogo(ctx, logoCanvas, cx, logoTopY, logoW);
+  const labelY = stackTopY + logoH + stackGap + 9;
+  const barY = labelY + 24;
+  const countY = labelY + 56;
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
   ctx.fillStyle = "rgba(190,238,255,0.58)";
   ctx.font = '500 17px "IBM Plex Mono", monospace';
-  ctx.fillText("LOADING SESSION AUDIO", cx, cy - 30);
+  ctx.fillText("LOADING SESSION AUDIO", cx, labelY);
 
   const barX = cx - barW * 0.5;
-  const barY = cy - barH * 0.5;
   ctx.strokeStyle = "rgba(190,238,255,0.36)";
   ctx.lineWidth = 1;
   ctx.strokeRect(barX + 0.5, barY + 0.5, barW - 1, barH - 1);
@@ -435,7 +439,7 @@ const drawPreloadScreen = (
   ctx.fillText(
     `${String(loaded).padStart(3, "0")} / ${String(total).padStart(3, "0")}`,
     cx,
-    cy + 26,
+    countY,
   );
 };
 

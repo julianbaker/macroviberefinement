@@ -301,22 +301,18 @@ export function AlignmentReport({
             ctx.globalAlpha = 1;
           }
 
-          // Count + pct label (right-aligned)
+          // Percentage-only label (right-aligned). We intentionally hide raw counts.
           ctx.textAlign = "right";
           ctx.font = `500 ${Math.max(13, rowFontSize - 2)}px "IBM Plex Mono", monospace`;
 
           if (trackableCount > 0) {
-            const pctLabel = `${Math.round(matchPct * 100)}%`;
+            const pctLabel = `${Math.round(matchPct * 100)}% ALIGNED`;
             ctx.fillStyle = "rgba(190,238,255,0.72)";
-            ctx.fillText(
-              `${stat.matchCount}/${stat.userCount} · ${pctLabel}`,
-              frameWidth - pad,
-              rowMidY,
-            );
+            ctx.fillText(pctLabel, frameWidth - pad, rowMidY);
           } else {
-            // All tracks have no consensus yet
+            // All tracks in this bin have no consensus yet.
             ctx.fillStyle = "rgba(190,238,255,0.34)";
-            ctx.fillText(`${stat.userCount} · —`, frameWidth - pad, rowMidY);
+            ctx.fillText("NO CONSENSUS YET", frameWidth - pad, rowMidY);
           }
         }
       } else if (loadState === "loading") {

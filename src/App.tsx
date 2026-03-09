@@ -1285,24 +1285,27 @@ export function App() {
             </div>
           ) : (
             <div className="preload-screen">
-              <p className="preload-label">LOADING SESSION AUDIO</p>
-              <div
-                className="preload-bar-wrap"
-                role="progressbar"
-                aria-valuenow={preloadProgress.loaded}
-                aria-valuemax={preloadProgress.total}
-              >
+              <img src={logoUrl} className="gate-logo preload-logo" alt="MacroVibe Refinement" aria-hidden="true" />
+              <div className="preload-status">
+                <p className="preload-label">LOADING SESSION AUDIO</p>
                 <div
-                  className="preload-bar-fill"
-                  style={{
-                    width: `${Math.round((preloadProgress.loaded / Math.max(1, preloadProgress.total)) * 100)}%`,
-                  }}
-                />
+                  className="preload-bar-wrap"
+                  role="progressbar"
+                  aria-valuenow={preloadProgress.loaded}
+                  aria-valuemax={preloadProgress.total}
+                >
+                  <div
+                    className="preload-bar-fill"
+                    style={{
+                      width: `${Math.round((preloadProgress.loaded / Math.max(1, preloadProgress.total)) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <p className="preload-count">
+                  {String(preloadProgress.loaded).padStart(3, "0")} /{" "}
+                  {String(preloadProgress.total).padStart(3, "0")}
+                </p>
               </div>
-              <p className="preload-count">
-                {String(preloadProgress.loaded).padStart(3, "0")} /{" "}
-                {String(preloadProgress.total).padStart(3, "0")}
-              </p>
             </div>
           )}
         </div>

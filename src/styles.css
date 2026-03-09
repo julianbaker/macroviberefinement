@@ -722,10 +722,23 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.9rem;
+  width: min(400px, 54vw);
+  gap: 40px;
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.12em;
   pointer-events: none; /* when overlay is transparent, clicks pass through to CRT beneath */
+}
+
+.preload-logo {
+  width: min(220px, 40vw);
+}
+
+.preload-status {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
 }
 
 .preload-label {
@@ -736,7 +749,7 @@ body {
 }
 
 .preload-bar-wrap {
-  width: min(22rem, 72vw);
+  width: 100%;
   height: 1.1rem;
   border: 1px solid var(--on-40);
   background: var(--off-92);
