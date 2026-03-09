@@ -372,35 +372,49 @@ async function runIngest(): Promise<Response> {
       new Set(Array.from(snapshotMap.values()).map((entry) => entry.track_id)),
     );
     const unresolvedTrackIds = new Set(snapshotTrackIds);
+    let metadataFetchComplete = true;
+    let metadataBatchErrors = 0;
 
     const batchSize = 50;
     for (let index = 0; index < snapshotTrackIds.length; index += batchSize) {
       const batch = snapshotTrackIds.slice(index, index + batchSize);
-      const tracks = await fetchTracksByIds(config.audiusApiBaseUrl, batch);
-      for (const track of tracks) {
-        trackMap.set(track.track_id, track);
-        unresolvedTrackIds.delete(track.track_id);
+      try {
+        const tracks = await fetchTracksByIds(config.audiusApiBaseUrl, batch);
+        for (const track of tracks) {
+          trackMap.set(track.track_id, track);
+          unresolvedTrackIds.delete(track.track_id);
+        }
+      } catch (error) {
+        metadataFetchComplete = false;
+        metadataBatchErrors += 1;
+        logEvent("ingest_track_metadata_batch_error", {
+          batchStart: index,
+          batchSize: batch.length,
+          error: error instanceof Error ? error.message : "AUDIUS_TRACK_METADATA_BATCH_FAILED",
+        });
       }
     }
 
     const ineligibleTrackIds = new Set<string>();
-    for (const track of trackMap.values()) {
-      if (track.is_gated) {
-        ineligibleTrackIds.add(track.track_id);
+    if (metadataFetchComplete) {
+      for (const track of trackMap.values()) {
+        if (track.is_gated) {
+          ineligibleTrackIds.add(track.track_id);
+        }
       }
-    }
-    for (const trackId of unresolvedTrackIds) {
-      ineligibleTrackIds.add(trackId);
-      trackMap.set(trackId, {
-        track_id: trackId,
-        title: null,
-        artist_name: null,
-        artwork_url: null,
-        duration_sec: null,
-        genre: null,
-        // Fail closed if metadata is absent from canonical endpoints.
-        is_gated: true,
-      });
+      for (const trackId of unresolvedTrackIds) {
+        ineligibleTrackIds.add(trackId);
+        trackMap.set(trackId, {
+          track_id: trackId,
+          title: null,
+          artist_name: null,
+          artwork_url: null,
+          duration_sec: null,
+          genre: null,
+          // Fail closed if metadata is absent from canonical endpoints.
+          is_gated: true,
+        });
+      }
     }
 
     const snapshotEntries = Array.from(snapshotMap.values()).filter(
@@ -411,7 +425,8 @@ async function runIngest(): Promise<Response> {
     const healthy =
       sourceResolved &&
       paginationComplete &&
-      playlistCount >= config.minPlaylistsFloor;
+      playlistCount >= config.minPlaylistsFloor &&
+      metadataFetchComplete;
 
     const applyResult = await supabase.rpc("api_v1_apply_allowlist_snapshot", {
       p_source_owner_handle: sourceHandle,
@@ -447,6 +462,8 @@ async function runIngest(): Promise<Response> {
         snapshotRows: snapshotEntries.length,
         ineligibleTracksExcluded: ineligibleTrackIds.size,
         unresolvedTrackMetadata: unresolvedTrackIds.size,
+        metadataFetchComplete,
+        metadataBatchErrors,
         upsertedTracks,
         deactivatedTracks,
       },
@@ -459,6 +476,8 @@ async function runIngest(): Promise<Response> {
       trackCount: trackRows.length,
       ineligibleTracksExcluded: ineligibleTrackIds.size,
       unresolvedTrackMetadata: unresolvedTrackIds.size,
+      metadataFetchComplete,
+      metadataBatchErrors,
       appliedSnapshot,
       upsertedTracks,
       deactivatedTracks,
@@ -474,6 +493,8 @@ async function runIngest(): Promise<Response> {
       trackCount: trackRows.length,
       ineligibleTracksExcluded: ineligibleTrackIds.size,
       unresolvedTrackMetadata: unresolvedTrackIds.size,
+      metadataFetchComplete,
+      metadataBatchErrors,
       appliedSnapshot,
       upsertedTracks,
       deactivatedTracks,
