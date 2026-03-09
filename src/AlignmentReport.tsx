@@ -349,7 +349,7 @@ export function AlignmentReport({
       ctx.fillStyle = "rgba(190,238,255,0.94)";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("START NEW FILE", newFileX + btnW * 0.5, btnY + btnH * 0.5);
+      ctx.fillText("Continue Refining", newFileX + btnW * 0.5, btnY + btnH * 0.5);
 
       // Store layout for DOM overlay alignment
       const layout: ButtonLayout = {
@@ -383,7 +383,7 @@ export function AlignmentReport({
           {buttonLayout && frameSize.width > 0 && (
             <button
               type="button"
-              aria-label="Start new file"
+              aria-label="Continue Refining"
               onClick={onNewFile}
               onPointerEnter={() => setHoveredButton(true)}
               onPointerLeave={() => setHoveredButton(false)}
@@ -422,7 +422,7 @@ export function AlignmentReport({
                   onPointerEnter={() => setHoveredButton(true)}
                   onPointerLeave={() => setHoveredButton(false)}
                 >
-                  START NEW FILE
+                  Continue Refining
                 </button>
               </div>
             </div>
