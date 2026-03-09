@@ -628,47 +628,49 @@ body {
   pointer-events: none;
 }
 
-/* Gate elements use absolute positioning to match canvas coordinates exactly.
-   Canvas draws: button centred at (cx, cy); archive link at cy + 26 + 30 = cy+56.
-   CSS mirrors those with top:50% offsets so invisible HTML = canvas visual.     */
+/* Gate elements mirror the canvas lockup: centered logo+button stack plus
+   a small bottom caption, so transparent DOM hit targets align with CRT visuals. */
 
 .gate-lockup {
   position: absolute;
   inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none; /* only .gate-button captures when overlay is transparent */
 }
 
-/* Logo in the upper portion of the gate screen.
-   Mirrors the canvas position: centred in the space above the button. */
+.gate-stack {
+  width: min(360px, 54vw);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+}
+
+/* Logo in the gate stack above the button. */
 .gate-logo {
-  position: absolute;
-  /* Mirrors canvas: logoTopY = (cy - 26 - logoH) * 0.45, centre at ~28% height */
-  top: 28%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(220px, 40%);
+  width: min(220px, 40vw);
   height: auto;
   filter: invert(1) opacity(0.88);
   pointer-events: none;
 }
 
 .gate-error {
-  position: absolute;
-  /* canvas: cy - 58 */
-  top: calc(50% - 58px);
-  left: 50%;
-  transform: translate(-50%, -50%);
+  margin: -6px 0 0;
+  width: 100%;
+  text-align: center;
   white-space: nowrap;
+  color: rgba(254, 123, 217, 0.82);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
   pointer-events: none;
 }
 
 .gate-button {
-  /* canvas: centred at cy, btnW=min(360px,54%), btnH=52px */
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(360px, 54%);
+  width: 100%;
   min-width: 200px; /* keep tap target usable on narrow viewports */
   height: 52px;
 
@@ -699,6 +701,21 @@ body {
 .gate-button:focus-visible {
   outline: 1px solid var(--on-72);
   outline-offset: 3px;
+}
+
+.gate-tagline {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(22px, 5vh, 40px);
+  transform: translateX(-50%);
+  margin: 0;
+  color: rgba(190, 238, 255, 0.5);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: clamp(0.62rem, 0.95vw, 0.74rem);
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .preload-screen {

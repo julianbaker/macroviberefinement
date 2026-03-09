@@ -18,6 +18,7 @@ type TrackRow = {
   artwork_url: string | null;
   duration_sec: number | null;
   genre: string | null;
+  is_gated: boolean;
 };
 
 function logEvent(name: string, payload: Record<string, unknown>): void {
@@ -107,11 +108,62 @@ function valueAsInteger(value: unknown): number | null {
   return null;
 }
 
-function isAudiusStatus(error: unknown, statusCode: number): boolean {
-  if (!(error instanceof Error)) {
+function valueAsBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return null;
+}
+
+function hasGateCondition(value: unknown): boolean {
+  if (!value) {
     return false;
   }
-  return error.message.startsWith(`AUDIUS_HTTP_${statusCode}`);
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value as JsonObject).length > 0;
+  }
+  return false;
+}
+
+function isTrackGatedOrPremium(trackObj: JsonObject): boolean {
+  const directSignals = [
+    valueAsBoolean(trackObj.is_stream_gated),
+    valueAsBoolean(trackObj.isStreamGated),
+    valueAsBoolean(trackObj.is_premium),
+    valueAsBoolean(trackObj.isPremium),
+    valueAsBoolean(trackObj.is_download_gated),
+    valueAsBoolean(trackObj.isDownloadGated),
+  ];
+
+  if (directSignals.some((signal) => signal === true)) {
+    return true;
+  }
+
+  if (
+    hasGateCondition(trackObj.stream_conditions) ||
+    hasGateCondition(trackObj.streamConditions) ||
+    hasGateCondition(trackObj.usdc_purchase_conditions) ||
+    hasGateCondition(trackObj.usdcPurchaseConditions)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function trackIdFromUnknown(track: unknown): string | null {
@@ -162,6 +214,7 @@ function parseTrackRow(track: unknown): TrackRow | null {
     artwork_url: artworkUrl,
     duration_sec: valueAsInteger(trackObj.duration),
     genre: valueAsString(trackObj.genre),
+    is_gated: isTrackGatedOrPremium(trackObj),
   };
 }
 
@@ -229,13 +282,6 @@ async function fetchTracksByIds(baseUrl: string, trackIds: string[]): Promise<Tr
     }
   }
 
-  if (
-    isAudiusStatus(lastError, 403) ||
-    isAudiusStatus(lastError, 404) ||
-    isAudiusStatus(lastError, 429)
-  ) {
-    return [];
-  }
   throw lastError;
 }
 
@@ -318,10 +364,6 @@ async function runIngest(): Promise<Response> {
             track_id: trackId,
           });
 
-          const maybeTrack = parseTrackRow(track);
-          if (maybeTrack) {
-            trackMap.set(maybeTrack.track_id, maybeTrack);
-          }
         }
       }
     }
@@ -329,23 +371,41 @@ async function runIngest(): Promise<Response> {
     const snapshotTrackIds = Array.from(
       new Set(Array.from(snapshotMap.values()).map((entry) => entry.track_id)),
     );
-    const missingMetadataIds = snapshotTrackIds.filter((trackId) => {
-      const existing = trackMap.get(trackId);
-      // Playlist payloads are often partial; re-hydrate any track missing genre
-      // so podcast exclusion can be enforced from canonical track metadata.
-      return !existing || existing.genre === null;
-    });
+    const unresolvedTrackIds = new Set(snapshotTrackIds);
 
     const batchSize = 50;
-    for (let index = 0; index < missingMetadataIds.length; index += batchSize) {
-      const batch = missingMetadataIds.slice(index, index + batchSize);
+    for (let index = 0; index < snapshotTrackIds.length; index += batchSize) {
+      const batch = snapshotTrackIds.slice(index, index + batchSize);
       const tracks = await fetchTracksByIds(config.audiusApiBaseUrl, batch);
       for (const track of tracks) {
         trackMap.set(track.track_id, track);
+        unresolvedTrackIds.delete(track.track_id);
       }
     }
 
-    const snapshotEntries = Array.from(snapshotMap.values());
+    const ineligibleTrackIds = new Set<string>();
+    for (const track of trackMap.values()) {
+      if (track.is_gated) {
+        ineligibleTrackIds.add(track.track_id);
+      }
+    }
+    for (const trackId of unresolvedTrackIds) {
+      ineligibleTrackIds.add(trackId);
+      trackMap.set(trackId, {
+        track_id: trackId,
+        title: null,
+        artist_name: null,
+        artwork_url: null,
+        duration_sec: null,
+        genre: null,
+        // Fail closed if metadata is absent from canonical endpoints.
+        is_gated: true,
+      });
+    }
+
+    const snapshotEntries = Array.from(snapshotMap.values()).filter(
+      (entry) => !ineligibleTrackIds.has(entry.track_id),
+    );
     const trackRows = Array.from(trackMap.values());
 
     const healthy =
@@ -385,6 +445,8 @@ async function runIngest(): Promise<Response> {
       applied_snapshot: appliedSnapshot,
       metadata: {
         snapshotRows: snapshotEntries.length,
+        ineligibleTracksExcluded: ineligibleTrackIds.size,
+        unresolvedTrackMetadata: unresolvedTrackIds.size,
         upsertedTracks,
         deactivatedTracks,
       },
@@ -395,6 +457,8 @@ async function runIngest(): Promise<Response> {
       healthy,
       playlistCount,
       trackCount: trackRows.length,
+      ineligibleTracksExcluded: ineligibleTrackIds.size,
+      unresolvedTrackMetadata: unresolvedTrackIds.size,
       appliedSnapshot,
       upsertedTracks,
       deactivatedTracks,
@@ -408,6 +472,8 @@ async function runIngest(): Promise<Response> {
       paginationComplete,
       playlistCount,
       trackCount: trackRows.length,
+      ineligibleTracksExcluded: ineligibleTrackIds.size,
+      unresolvedTrackMetadata: unresolvedTrackIds.size,
       appliedSnapshot,
       upsertedTracks,
       deactivatedTracks,

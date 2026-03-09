@@ -348,28 +348,29 @@ const drawGateScreen = (
   drawBackground(ctx, frameWidth, frameHeight);
 
   const cx = frameWidth * 0.5;
-  const cy = frameHeight * 0.5;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Logo — upper portion of the screen, above the button
+  // Keep logo + button as a centered lockup.
   const logoW = Math.min(260, frameWidth * 0.42);
   const logoH = logoW / LOGO_ASPECT;
-  // Centre the logo in the space between top edge and the button (cy - 26 = btnTop)
-  const logoTopY = (cy - 26 - logoH) * 0.45;
+  const btnW = Math.max(200, Math.min(360, frameWidth * 0.54));
+  const btnH = 52;
+  const stackGap = 80;
+  const stackH = logoH + stackGap + btnH;
+  const stackTopY = (frameHeight - stackH) * 0.5;
+  const logoTopY = stackTopY;
   drawLogo(ctx, logoCanvas, cx, logoTopY, logoW);
 
-  // Error sits 58px above centre — button is always at cy regardless
+  const btnX = cx - btnW * 0.5;
+  const btnY = stackTopY + logoH + stackGap;
+
+  // Keep the error line between logo and button when present.
   if (sessionInitError) {
     ctx.fillStyle = "rgba(254,123,217,0.82)";
     ctx.font = '500 15px "IBM Plex Mono", monospace';
-    ctx.fillText(`ERROR: ${sessionInitError}`, cx, cy - 58);
+    ctx.fillText(`ERROR: ${sessionInitError}`, cx, logoTopY + logoH + stackGap * 0.5);
   }
-
-  const btnW = Math.min(360, frameWidth * 0.54);
-  const btnH = 52;
-  const btnX = cx - btnW * 0.5;
-  const btnY = cy - btnH * 0.5; // always centred at cy
 
   ctx.strokeStyle = "rgba(190,238,255,0.78)";
   ctx.lineWidth = 1;
@@ -380,6 +381,10 @@ const drawGateScreen = (
   ctx.fillStyle = "rgba(190,238,255,0.94)";
   ctx.font = '600 18px "IBM Plex Mono", monospace';
   ctx.fillText("BEGIN REFINEMENT", cx, btnY + btnH * 0.5);
+
+  ctx.fillStyle = "rgba(190,238,255,0.5)";
+  ctx.font = '500 12px "IBM Plex Mono", monospace';
+  ctx.fillText("a collective curation experiment", cx, frameHeight - Math.max(24, frameHeight * 0.055));
 
 };
 

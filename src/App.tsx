@@ -1266,19 +1266,22 @@ export function App() {
         >
           {audioPhase === "locked" ? (
             <div className="gate-lockup">
-              <img src={logoUrl} className="gate-logo" alt="MacroVibe Refinement" aria-hidden="true" />
-              {sessionInitError && (
-                <p className="gate-error">ERROR: {sessionInitError}</p>
-              )}
-              <button
-                type="button"
-                className="gate-button"
-                onClick={handleUnlock}
-                onPointerEnter={() => setHoveredButton(true)}
-                onPointerLeave={() => setHoveredButton(false)}
-              >
-                BEGIN REFINEMENT
-              </button>
+              <div className="gate-stack">
+                <img src={logoUrl} className="gate-logo" alt="MacroVibe Refinement" aria-hidden="true" />
+                {sessionInitError && (
+                  <p className="gate-error">ERROR: {sessionInitError}</p>
+                )}
+                <button
+                  type="button"
+                  className="gate-button"
+                  onClick={handleUnlock}
+                  onPointerEnter={() => setHoveredButton(true)}
+                  onPointerLeave={() => setHoveredButton(false)}
+                >
+                  BEGIN REFINEMENT
+                </button>
+              </div>
+              <p className="gate-tagline">a collective curation experiment</p>
             </div>
           ) : (
             <div className="preload-screen">

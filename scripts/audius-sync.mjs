@@ -79,6 +79,43 @@ function getErrorMessage(err) {
   return JSON.stringify(err);
 }
 
+function valueAsBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+  }
+  return null;
+}
+
+function hasGateCondition(value) {
+  if (!value) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return false;
+}
+
+function isTrackGatedOrPremium(track) {
+  const directSignals = [
+    valueAsBoolean(track?.is_stream_gated),
+    valueAsBoolean(track?.isStreamGated),
+    valueAsBoolean(track?.is_premium),
+    valueAsBoolean(track?.isPremium),
+    valueAsBoolean(track?.is_download_gated),
+    valueAsBoolean(track?.isDownloadGated),
+  ];
+  if (directSignals.some((signal) => signal === true)) return true;
+
+  return (
+    hasGateCondition(track?.stream_conditions) ||
+    hasGateCondition(track?.streamConditions) ||
+    hasGateCondition(track?.usdc_purchase_conditions) ||
+    hasGateCondition(track?.usdcPurchaseConditions)
+  );
+}
+
 function isAlreadySocialActionError(err) {
   const message = getErrorMessage(err).toLowerCase();
   return (
@@ -241,9 +278,12 @@ async function fetchTrackSnapshot(trackId) {
   const json = await resp.json();
   const track = json?.data;
   if (!track) return { status: "error", error: "Missing data payload" };
+  if (isTrackGatedOrPremium(track)) {
+    return { status: "ineligible", reason: "gated_or_premium" };
+  }
   if (track.is_delete || track.is_unlisted || track.is_available === false) {
     return {
-      status: "deleted",
+      status: "ineligible",
       reason: track.is_delete ? "is_delete" : track.is_unlisted ? "is_unlisted" : "unavailable",
     };
   }
@@ -427,7 +467,7 @@ async function runSync() {
     const publishedFinal = new Map(published);
     const trackArtistMap = new Map();
 
-    // Evict tracks that have been deleted or unlisted on Audius.
+    // Evict tracks that are no longer eligible on Audius (deleted/unlisted/unavailable/gated).
     // Check both desired AND published tracks:
     //   - published: catch tracks already in playlists that were deleted after being added
     //   - desired:   catch tracks deleted on Audius before they've been published, so we
@@ -435,19 +475,23 @@ async function runSync() {
     // Uses the REST API directly; the SDK (initialised with write credentials) rejects read calls.
     // Requests are sequential with a small delay to avoid 429 rate-limiting from api.audius.co.
     const allTrackIds = new Set([...desired.keys(), ...published.keys()]);
-    const deletedOnAudius = new Set();
+    const ineligibleOnAudius = new Map();
+    const gatedOnAudius = new Set();
 
     for (const trackId of allTrackIds) {
       try {
         const snapshot = await fetchTrackSnapshot(trackId);
         if (snapshot.status === "missing") {
-          deletedOnAudius.add(trackId);
-          logEvent("audius_track_deleted_on_platform", { trackId, reason: "404" });
-        } else if (snapshot.status === "deleted") {
-          deletedOnAudius.add(trackId);
-          logEvent("audius_track_deleted_on_platform", {
+          ineligibleOnAudius.set(trackId, "404");
+          logEvent("audius_track_ineligible_on_platform", { trackId, reason: "404" });
+        } else if (snapshot.status === "ineligible") {
+          ineligibleOnAudius.set(trackId, snapshot.reason ?? "ineligible");
+          if (snapshot.reason === "gated_or_premium") {
+            gatedOnAudius.add(trackId);
+          }
+          logEvent("audius_track_ineligible_on_platform", {
             trackId,
-            reason: snapshot.reason ?? "deleted",
+            reason: snapshot.reason ?? "ineligible",
           });
         } else if (snapshot.status === "ok") {
           const artistUserId = extractTrackArtistUserId(snapshot.track);
@@ -465,22 +509,36 @@ async function runSync() {
       await new Promise((r) => setTimeout(r, 150));
     }
 
-    // Pull deleted tracks out of desired so the diff sends them to toRemove
-    for (const trackId of deletedOnAudius) {
+    // Pull ineligible tracks out of desired so the diff sends them to toRemove.
+    for (const trackId of ineligibleOnAudius.keys()) {
       desired.delete(trackId);
     }
 
-    // Deactivate deleted tracks in Supabase so they stop being served for refinement
-    if (deletedOnAudius.size > 0) {
-      const deletedArr = [...deletedOnAudius];
+    // Deactivate ineligible tracks in Supabase so they stop being served for refinement.
+    if (ineligibleOnAudius.size > 0) {
+      const ineligibleTrackIds = [...ineligibleOnAudius.keys()];
       const { error: deactivateError } = await supabase
         .from("track_pool")
         .update({ is_active: false })
-        .in("track_id", deletedArr);
+        .in("track_id", ineligibleTrackIds);
       if (deactivateError) {
-        logEvent("audius_deactivate_fail", { error: deactivateError.message, count: deletedArr.length });
+        logEvent("audius_deactivate_fail", { error: deactivateError.message, count: ineligibleTrackIds.length });
       } else {
-        logEvent("audius_tracks_deactivated", { count: deletedArr.length });
+        logEvent("audius_tracks_deactivated", { count: ineligibleTrackIds.length });
+      }
+    }
+
+    // Persist explicit gated state for premium/stream-gated tracks.
+    if (gatedOnAudius.size > 0) {
+      const gatedTrackIds = [...gatedOnAudius];
+      const { error: gatedFlagError } = await supabase
+        .from("track_pool")
+        .update({ is_gated: true, is_active: false })
+        .in("track_id", gatedTrackIds);
+      if (gatedFlagError) {
+        logEvent("audius_gated_flag_update_fail", { error: gatedFlagError.message, count: gatedTrackIds.length });
+      } else {
+        logEvent("audius_gated_flag_updated", { count: gatedTrackIds.length });
       }
     }
 
@@ -654,7 +712,8 @@ async function runSync() {
         artistsFollowed,
         followCandidates: followSync.uniqueArtists,
         unresolvedArtistTracks: followSync.unresolvedTracks,
-        deletedOnAudius: deletedOnAudius.size,
+        ineligibleOnAudius: ineligibleOnAudius.size,
+        gatedOnAudius: gatedOnAudius.size,
       },
     });
 
