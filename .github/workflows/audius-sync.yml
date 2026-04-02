@@ -2,7 +2,7 @@ name: Audius Playlist Sync
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour at :00
+    - cron: "0 */12 * * *"   # every 12 hours at :00 to stay under Actions minute limits
   workflow_dispatch:
     inputs:
       setup:
