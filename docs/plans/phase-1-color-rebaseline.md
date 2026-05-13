@@ -12,11 +12,11 @@ Status: Submitted for explicit color parity approval (Phase 2 blocked)
 6. Full color token audit included below.
 
 ## Side-by-Side Stills (Reference Left, Current Right)
-1. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/evidence/phase-1/side-by-side/01-overall-refine-frame.png`
-2. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/evidence/phase-1/side-by-side/02-grid-visual-treatment.png`
-3. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/evidence/phase-1/side-by-side/03-bucket-visual-structure.png`
-4. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/evidence/phase-1/side-by-side/04-crt-visibility-readability.png`
-5. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/evidence/phase-1/side-by-side/05-palette-parity-closeup.png`
+1. `docs/evidence/phase-1/side-by-side/01-overall-refine-frame.png`
+2. `docs/evidence/phase-1/side-by-side/02-grid-visual-treatment.png`
+3. `docs/evidence/phase-1/side-by-side/03-bucket-visual-structure.png`
+4. `docs/evidence/phase-1/side-by-side/04-crt-visibility-readability.png`
+5. `docs/evidence/phase-1/side-by-side/05-palette-parity-closeup.png`
 
 Reference still source:
 - `/tmp/lumon-ref/docs/README.gif` frame `0` from `https://github.com/epassi/lumon-macrodata-refiner`
@@ -27,7 +27,7 @@ Source of truth lock:
 - `on/off`: `#BEEEFF` / `#051021`
 - accents: `#77DB70`, `#F1EB5A`, `#FE7BD9`, `#1A3DF5`
 
-All UI color tokens in use (`/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/src/styles.css`):
+All UI color tokens in use (`src/styles.css`):
 
 | Token | Hex | Palette Basis | Usage |
 |---|---|---|---|
@@ -54,7 +54,7 @@ All UI color tokens in use (`/Users/julianbaker/Documents/Dropbox/dev/macroviber
 | `--accent-ma-56` | `#1A3DF58F` | `accent-ma` + alpha | bin meter fill variant |
 
 Literal non-token hex usage in UI files:
-- None outside token definitions in `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/src/styles.css`.
+- None outside token definitions in `src/styles.css`.
 
 ## Delta Log (Concrete Remaining Gaps Only)
 1. Header logo/outline lockup does not yet replicate reference emblem geometry.

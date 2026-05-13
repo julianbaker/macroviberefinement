@@ -5,10 +5,10 @@ Build a public web toy where users sort anonymized music snippets into cryptic b
 
 ## 2. Source Context
 Primary ideation source:
-- `/Users/julianbaker/Downloads/ChatGPT-Community Music Curation.md`
+- Initial ideation notes from a community music curation concept
 
 Normative UI companion:
-- `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/ui-spec.md`
+- `docs/plans/ui-spec.md`
 
 Key intent preserved:
 - public and no-auth MVP

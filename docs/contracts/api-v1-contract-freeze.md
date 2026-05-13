@@ -11,11 +11,11 @@ External JSON naming: `camelCase`
 API base path: `/api/v1`
 
 Function base URL (current project):
-- `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/api`
+- `https://<your-project-ref>.supabase.co/functions/v1/api`
 
 Base URL usage rule:
 - FE must use function base URL, then append route paths that start with `/api/v1/...`.
-- Example final URL: `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/api/api/v1/session/init?device=mobile`
+- Example final URL: `https://<your-project-ref>.supabase.co/functions/v1/api/api/v1/session/init?device=mobile`
 
 Error envelope:
 ```json

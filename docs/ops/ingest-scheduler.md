@@ -1,16 +1,16 @@
 # Ingest Scheduler Configuration
 
-Project ref: `ukqfnoemsifeiotqlxcp`
+Project ref: `<your-project-ref>`
 
 Status: Active
 
 Created by migration:
-- `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/supabase/migrations/20260220002000_04_ingest_scheduler.sql`
+- `supabase/migrations/20260220002000_04_ingest_scheduler.sql`
 
 ## Schedule
 - Job name: `ingest_every_6_hours`
 - Cron: `0 */6 * * *`
-- Action: `net.http_post` to `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/ingest`
+- Action: `net.http_post` to `https://<your-project-ref>.supabase.co/functions/v1/ingest`
 - Request body: `{}`
 - Header: `Content-Type: application/json`
 - Timeout: `10000ms`
@@ -34,5 +34,5 @@ Observed result:
 
 ## Manual trigger
 ```bash
-curl -sS -X POST "https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/ingest"
+curl -sS -X POST "https://<your-project-ref>.supabase.co/functions/v1/ingest"
 ```

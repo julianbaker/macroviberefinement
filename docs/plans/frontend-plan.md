@@ -14,8 +14,8 @@ Primary success criterion is MDR-style visual and interaction fidelity, then bac
 
 ## 2. Required Inputs
 Read in this exact order before writing code:
-1. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/project-plan.md`
-2. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/ui-spec.md`
+1. `docs/plans/project-plan.md`
+2. `docs/plans/ui-spec.md`
 3. frozen backend contract artifact from BE IC (`api-v1-contract-freeze.md` or equivalent)
 4. frontend integration handoff artifact from BE IC (`frontend-integration-handoff.md` or equivalent)
 5. Medium article reference used by PM.

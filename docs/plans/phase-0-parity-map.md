@@ -4,11 +4,11 @@ Date: 2026-02-20
 Status: Awaiting PM/CTO gate approval before Phase 1
 
 ## Inputs Read (Required Order)
-1. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/project-plan.md`
-2. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/ui-spec.md`
-3. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/frontend-plan.md`
-4. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/contracts/api-v1-contract-freeze.md`
-5. `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/contracts/frontend-integration-handoff.md`
+1. `docs/plans/project-plan.md`
+2. `docs/plans/ui-spec.md`
+3. `docs/plans/frontend-plan.md`
+4. `docs/contracts/api-v1-contract-freeze.md`
+5. `docs/contracts/frontend-integration-handoff.md`
 6. Medium reference: `https://epassi.medium.com/building-the-lumon-macrodata-refiner-2ba59fccbee9`
 7. Git reference from Medium: `https://github.com/epassi/lumon-macrodata-refiner`
 

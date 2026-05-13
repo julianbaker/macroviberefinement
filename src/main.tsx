@@ -7,8 +7,10 @@ import "./styles.css";
 
 // ── Dev preview ──────────────────────────────────────────────────────────────
 // Navigate to /?preview=alignment to render the AlignmentReport with mock data.
-// No backend required. Remove or ignore in production — no effect on normal flow.
-const previewParam = new URLSearchParams(location.search).get("preview");
+// No backend required. Stripped from production builds by Vite's dead-code elimination.
+const previewParam = import.meta.env.DEV
+  ? new URLSearchParams(location.search).get("preview")
+  : null;
 
 if (previewParam === "alignment") {
   const BIN_CODES = ["VELLUM", "BRINE", "HEAT", "STATIC", "HALO", "GRIT"];

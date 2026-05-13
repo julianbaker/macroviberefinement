@@ -4,7 +4,7 @@
 Implement a deterministic, abuse-resistant backend for anonymous refinement sessions using a strict Audius allowlist and stable archive aggregation.
 
 Master dependency:
-- `/Users/julianbaker/Documents/Dropbox/dev/macroviberefinement/docs/plans/project-plan.md`
+- `docs/plans/project-plan.md`
 
 ## 2. Locked Rules
 - Bins fixed to 6 codenames in master plan.

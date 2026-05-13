@@ -51,6 +51,10 @@ type CrtWebglOverlayProps = {
   audioPhase?: "locked" | "preloading" | "ready";
   preloadProgress?: { loaded: number; total: number };
   sessionInitError?: string | null;
+  // Footer labels — rendered in the source canvas so they appear through the CRT effect
+  sessionLabel?: string;
+  footerCenter?: string;
+  footerRight?: string;
   // Custom draw override — when provided, replaces the built-in draw entirely
   drawContent?: (ctx: CanvasRenderingContext2D, frameWidth: number, frameHeight: number) => void;
   onStatusChange?: (status: "initializing" | "ready" | "failed") => void;
@@ -462,6 +466,9 @@ const drawSourceSurface = (
   frameLeft: number,
   frameTop: number,
   logoCanvas: HTMLCanvasElement | null,
+  sessionLabel: string,
+  footerCenter: string,
+  footerRight: string,
 ) => {
   const pad = 16;
   const headerH = 80; // matches .frame-header { height: 80px }
@@ -621,11 +628,11 @@ const drawSourceSurface = (
   ctx.fillStyle = "rgba(190,238,255,0.66)";
   ctx.font = '500 16px "IBM Plex Mono", monospace';
   ctx.textAlign = "left";
-  ctx.fillText("SESSION: 8F0C-42DA", pad, footerY);
+  ctx.fillText(sessionLabel, pad, footerY);
   ctx.textAlign = "center";
-  ctx.fillText("AUDIO: ARMED", frameWidth * 0.5, footerY);
+  ctx.fillText(footerCenter, frameWidth * 0.5, footerY);
   ctx.textAlign = "right";
-  ctx.fillText("LATENCY: 182MS", frameWidth - pad, footerY);
+  ctx.fillText(footerRight, frameWidth - pad, footerY);
 
   const activeDrag = dragState ?? throwState;
   if (activeDrag) {
@@ -675,6 +682,9 @@ export function CrtWebglOverlay({
   audioPhase,
   preloadProgress,
   sessionInitError,
+  sessionLabel,
+  footerCenter,
+  footerRight,
   drawContent,
   onStatusChange,
   cursorType,
@@ -754,6 +764,9 @@ export function CrtWebglOverlay({
     audioPhase: audioPhase ?? "ready",
     preloadProgress: preloadProgress ?? { loaded: 0, total: 1 },
     sessionInitError: sessionInitError ?? null,
+    sessionLabel: sessionLabel ?? "",
+    footerCenter: footerCenter ?? "",
+    footerRight: footerRight ?? "",
   });
 
   latestRef.current = {
@@ -771,6 +784,9 @@ export function CrtWebglOverlay({
     audioPhase: audioPhase ?? "ready",
     preloadProgress: preloadProgress ?? { loaded: 0, total: 1 },
     sessionInitError: sessionInitError ?? null,
+    sessionLabel: sessionLabel ?? "",
+    footerCenter: footerCenter ?? "",
+    footerRight: footerRight ?? "",
   };
 
   const commitStatus = useCallback((next: "initializing" | "ready" | "failed") => {
@@ -985,6 +1001,9 @@ export function CrtWebglOverlay({
               frameRect.left,
               frameRect.top,
               logoCanvasRef.current,
+              latest.sessionLabel,
+              latest.footerCenter,
+              latest.footerRight,
             );
           }
         }

@@ -3,4 +3,6 @@ dist/
 .env
 .env.local
 .DS_Store
-.codex/reference/lumon-macrodata-refiner/
+.codex/
+skills/
+supabase/.temp/

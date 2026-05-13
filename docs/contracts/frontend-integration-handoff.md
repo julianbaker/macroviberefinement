@@ -1,24 +1,24 @@
 # Frontend Integration Handoff (Backend Frozen)
 
-Project ref: `ukqfnoemsifeiotqlxcp`
+Project ref: `<your-project-ref>`
 
 ## Required FE env vars
 
 Use these names in FE:
 
 - `VITE_FUNCTION_BASE_URL`
-  - value: `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/api`
+  - value: `https://<your-project-ref>.supabase.co/functions/v1/api`
 - `VITE_API_BASE_PATH`
   - value: `/api/v1`
 
 If FE also initializes Supabase client directly, add:
 
 - `VITE_SUPABASE_URL`
-  - value: `https://ukqfnoemsifeiotqlxcp.supabase.co`
+  - value: `https://<your-project-ref>.supabase.co`
 - `VITE_SUPABASE_ANON_KEY`
   - value: `<project anon key>`
   - fetch with:
-    - `supabase projects api-keys --project-ref ukqfnoemsifeiotqlxcp`
+    - `supabase projects api-keys --project-ref <your-project-ref>`
 
 ## Base URL routing rule (avoid double-prefix errors)
 
@@ -28,9 +28,9 @@ Correct composition:
 - final URL = `${base}${route}`
 
 Example:
-- base: `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/api`
+- base: `https://<your-project-ref>.supabase.co/functions/v1/api`
 - route: `/api/v1/session/init?device=mobile`
-- final: `https://ukqfnoemsifeiotqlxcp.supabase.co/functions/v1/api/api/v1/session/init?device=mobile`
+- final: `https://<your-project-ref>.supabase.co/functions/v1/api/api/v1/session/init?device=mobile`
 
 Do not set FE base URL to include `/api/v1` already, or routes will break.
 
