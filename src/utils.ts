@@ -172,7 +172,7 @@ export const getBinFromPoint = (
     if (
       clientX >= rect.left &&
       clientX <= rect.right &&
-      clientY >= rect.top - 18 &&
+      clientY >= rect.top - 72 &&
       clientY <= rect.bottom + 12
     ) {
       return index;

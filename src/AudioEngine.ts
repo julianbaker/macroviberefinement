@@ -70,6 +70,10 @@ export class AudioEngine {
     return this.sessionStartMs > 0 ? (performance.now() - this.sessionStartMs) / 1000 : 0;
   }
 
+  hasBuffer(trackId: string): boolean {
+    return this.buffers.has(trackId);
+  }
+
   private getTrackOffset(trackId: string): number {
     const buffer = this.buffers.get(trackId);
     if (!buffer || buffer.duration <= 0) return 0;

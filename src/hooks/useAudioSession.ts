@@ -160,20 +160,46 @@ export function useAudioSession({
         },
       );
 
-      // Replace failed tracks before opening the gate so every cell is playable.
+      // Replace failed tracks — retry up to MAX_ROUNDS before dropping
+      // unresolvable cells. Each round excludes all previously failed track
+      // IDs so the pool doesn't hand back the same broken stream twice.
+      // After all rounds, any cell still missing a buffer is removed from
+      // the session so the user never encounters a silent cell.
       if (failedTrackIds.length > 0 && sessionGenRef.current === gen) {
-        const failedIndices = failedTrackIds
-          .map((id) => tracks.findIndex((t) => t.trackId === id))
-          .filter((i) => i >= 0);
+        const MAX_ROUNDS = 4;
+        const excluded: string[] = [];
 
-        const replacements: Array<{ index: number; track: SessionTrack }> = [];
-        for (const index of failedIndices) {
-          const result = await api.sessionReplaceTrack(token, index, failedTrackIds);
-          if (sessionGenRef.current !== gen) return;
-          if (result.ok) replacements.push({ index, track: result.data });
-        }
+        // currentTracks[i] = the track currently assigned to cell i.
+        // Updated each round so subsequent rounds can locate failed cells
+        // by index even after earlier replacements changed their track IDs.
+        const currentTracks: SessionTrack[] = [...tracks];
+        let currentFailed = failedTrackIds;
 
-        if (replacements.length > 0 && sessionGenRef.current === gen) {
+        for (
+          let round = 0;
+          round < MAX_ROUNDS && currentFailed.length > 0 && sessionGenRef.current === gen;
+          round++
+        ) {
+          excluded.push(...currentFailed);
+
+          // Find which cell indices currently hold a failed track ID.
+          const failedIndices: number[] = [];
+          for (let i = 0; i < currentTracks.length; i++) {
+            if (currentFailed.includes(currentTracks[i].trackId)) failedIndices.push(i);
+          }
+          if (failedIndices.length === 0) break;
+
+          const replacements: Array<{ index: number; track: SessionTrack }> = [];
+          for (const idx of failedIndices) {
+            const result = await api.sessionReplaceTrack(token, idx, excluded);
+            if (sessionGenRef.current !== gen) return;
+            if (result.ok) {
+              replacements.push({ index: idx, track: result.data });
+              currentTracks[idx] = result.data;
+            }
+          }
+          if (replacements.length === 0) break;
+
           setCells((prev) => {
             const next = [...prev];
             for (const { index, track } of replacements) {
@@ -187,66 +213,23 @@ export function useAudioSession({
             streamUrl: r.track.streamUrl || null,
             durationSec: 0,
           }));
-          const { failedTrackIds: replacementFailed } = await engine.preload(
+
+          const { failedTrackIds: roundFailed } = await engine.preload(
             replacementMetas,
-            (loaded, total) =>
-              setPreloadProgress({
-                loaded: tracks.length - failedTrackIds.length + loaded,
-                total: tracks.length,
-              }),
+            () => {},   // suppress per-replacement progress noise; bar is already full
             undefined,
           );
           if (sessionGenRef.current !== gen) return;
+          currentFailed = roundFailed;
+        }
 
-          // One retry round for replacements that also failed to load.
-          if (replacementFailed.length > 0 && sessionGenRef.current === gen) {
-            const actualLoaded =
-              tracks.length -
-              failedTrackIds.length +
-              (replacements.length - replacementFailed.length);
-            setPreloadProgress({ loaded: actualLoaded, total: tracks.length });
-
-            const retryExclude = [...failedTrackIds, ...replacementFailed];
-            const retryIndices = replacements
-              .filter((r) => replacementFailed.includes(r.track.trackId))
-              .map((r) => r.index);
-
-            const retryReplacements: Array<{ index: number; track: SessionTrack }> = [];
-            for (const index of retryIndices) {
-              const result = await api.sessionReplaceTrack(token, index, retryExclude);
-              if (sessionGenRef.current !== gen) return;
-              if (result.ok) retryReplacements.push({ index, track: result.data });
-            }
-
-            if (retryReplacements.length > 0 && sessionGenRef.current === gen) {
-              setCells((prev) => {
-                const next = [...prev];
-                for (const { index, track } of retryReplacements) {
-                  next[index] = buildCellFromTrack(track, index);
-                }
-                return next;
-              });
-
-              const retryMetas: TrackMeta[] = retryReplacements.map((r) => ({
-                trackId: r.track.trackId,
-                streamUrl: r.track.streamUrl || null,
-                durationSec: 0,
-              }));
-              await engine.preload(
-                retryMetas,
-                (loaded, total) =>
-                  setPreloadProgress({
-                    loaded:
-                      tracks.length -
-                      failedTrackIds.length +
-                      (replacements.length - replacementFailed.length) +
-                      loaded,
-                    total: tracks.length,
-                  }),
-                undefined,
-              );
-              if (sessionGenRef.current !== gen) return;
-            }
+        // Safety net: drop any cell that still has no decoded buffer so no
+        // silent cells reach the user regardless of what failed above.
+        if (sessionGenRef.current === gen) {
+          const droppedCount = currentTracks.filter((t) => !engine.hasBuffer(t.trackId)).length;
+          if (droppedCount > 0) {
+            setStatusMessageRef.current(`DROPPED ${droppedCount} UNLOADABLE`);
+            setCells((prev) => prev.filter((cell) => engine.hasBuffer(cell.trackId)));
           }
         }
       }
