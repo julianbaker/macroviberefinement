@@ -25,6 +25,10 @@ export const BIN_METERS = [26, 53, 47, 64, 16, 38] as const;
 
 export const SESSION_SIZE_MAX = 64;
 
+// ── CRT constants ─────────────────────────────────────────────────────────────
+
+export const CRT_CURVATURE = 0.27;
+
 // ── Throw animation constants ─────────────────────────────────────────────────
 
 export const THROW_X_MS = 280;

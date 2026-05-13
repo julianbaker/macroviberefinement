@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import { CRT_CURVATURE } from "./utils";
 import logoUrl from "./assets/MVRLogo.svg?url";
 import cursorDefaultUrl from "./assets/cursors/cursor-default.svg?url";
 import cursorPointerUrl from "./assets/cursors/cursor-pointer.svg?url";
@@ -62,7 +63,7 @@ type CrtWebglOverlayProps = {
   cursorType?: CursorType | null;
 };
 
-export const CRT_CURVATURE = 0.27;
+export { CRT_CURVATURE } from "./utils";
 
 const CRT_PARAMS = {
   scanlineIntensity: 0.5,

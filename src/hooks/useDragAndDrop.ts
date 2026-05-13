@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CRT_CURVATURE } from "../CrtWebglOverlay";
 import { api } from "../api";
 import type { AudioEngine } from "../AudioEngine";
 import type { Cell, CellLayout, DragState, ThrowState } from "../types";
 import {
+  CRT_CURVATURE,
   BIN_CODES,
   THROW_X_MS,
   THROW_Y_MS,
