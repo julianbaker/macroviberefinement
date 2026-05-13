@@ -385,7 +385,7 @@ const drawGateScreen = (
 
   ctx.fillStyle = "rgba(190,238,255,0.94)";
   ctx.font = '600 18px "IBM Plex Mono", monospace';
-  ctx.fillText("BEGIN REFINEMENT", cx, btnY + btnH * 0.5);
+  ctx.fillText("START REFINING", cx, btnY + btnH * 0.5);
 
   ctx.fillStyle = "rgba(190,238,255,0.5)";
   ctx.font = '500 12px "IBM Plex Mono", monospace';

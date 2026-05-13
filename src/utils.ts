@@ -35,6 +35,20 @@ export const THROW_X_MS = 280;
 export const THROW_Y_MS = 340;
 export const THROW_TARGET_SCALE = 0.44;
 
+// ── Math helpers ──────────────────────────────────────────────────────────────
+// Defined before FLUID_SLOTS because the IIFE below calls clamp at init time.
+
+export const clamp = (value: number, min: number, max: number): number =>
+  Math.min(Math.max(value, min), max);
+
+export const lerp = (from: number, to: number, progress: number): number =>
+  from + (to - from) * progress;
+
+export const easeInOut = (t: number): number =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+export const easeOut = (t: number): number => 1 - Math.pow(1 - t, 3);
+
 // ── Grid slot layout ──────────────────────────────────────────────────────────
 
 const FLUID_ROW_COUNTS = [7, 8, 6, 8, 7, 8, 6, 7, 7] as const;
@@ -61,19 +75,6 @@ export const FLUID_SLOTS = (() => {
   });
   return slots;
 })();
-
-// ── Math helpers ──────────────────────────────────────────────────────────────
-
-export const clamp = (value: number, min: number, max: number): number =>
-  Math.min(Math.max(value, min), max);
-
-export const lerp = (from: number, to: number, progress: number): number =>
-  from + (to - from) * progress;
-
-export const easeInOut = (t: number): number =>
-  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-export const easeOut = (t: number): number => 1 - Math.pow(1 - t, 3);
 
 // ── Cell code generation ──────────────────────────────────────────────────────
 

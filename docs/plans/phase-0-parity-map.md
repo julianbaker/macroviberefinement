@@ -28,7 +28,7 @@ Status: Awaiting PM/CTO gate approval before Phase 1
 | `src/components/CompletionScreen.js` | `FileCompletionOverlay` | End-of-file state with `Start New File`; no intrusive reset while active file. |
 | `src/components/MessageScreen.js` | `BlockingMessageOverlay` | Blocking states (pool shortage, placements disabled, unsupported mode) within same visual language. |
 | `src/components/Cursor.js` | `RefineCursor` (optional) | Optional stylized cursor only if it does not reduce usability/accessibility. |
-| N/A in reference | `AudioUnlockGate` | Mandatory `Begin Refinement` gate before any audible playback. |
+| N/A in reference | `AudioUnlockGate` | Mandatory `Start Refining` gate before any audible playback. |
 | N/A in reference | `SessionAudioPreloader` | Preload full session set with retro progress UI, controlled concurrency. |
 | N/A in reference | `DragPlacementLayer` | Only intentional interaction deviation: single-item drag/drop into bins. |
 | N/A in reference | `ApiClientV1` | Frozen `/api/v1` contract integration only in Phase 4; no schema drift. |

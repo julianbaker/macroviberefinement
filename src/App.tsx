@@ -461,7 +461,7 @@ export function App() {
                   onPointerEnter={() => setHoveredButton(true)}
                   onPointerLeave={() => setHoveredButton(false)}
                 >
-                  BEGIN REFINEMENT
+                  START REFINING
                 </button>
               </div>
               <p className="gate-tagline">a collective curation experiment</p>

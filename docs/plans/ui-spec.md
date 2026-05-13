@@ -142,7 +142,7 @@ Easing:
 
 ## 10. Audio UX Spec
 ### 10.1 Unlock Gate
-- Show initial overlay button: `Begin Refinement`.
+- Show initial overlay button: `Start Refining`.
 - No audible sound before explicit click/tap.
 
 ### 10.2 Hover Audio

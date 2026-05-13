@@ -280,7 +280,7 @@ Layout commits to React state at ≤30 fps (`33.3 ms` throttle) unless drag or t
 The Web Audio API requires a user gesture before `AudioContext` can be created. The flow:
 
 1. On mount, `api.sessionInit()` is called **speculatively** (before any user gesture) to hide API latency. The result is stored in `prefetchRef`.
-2. When the user clicks **BEGIN REFINEMENT**, `handleUnlock()` runs inside the click handler: creates `AudioContext`, awaits the pre-fetched session data (or fetches fresh), then calls `initSession()`.
+2. When the user clicks **START REFINING**, `handleUnlock()` runs inside the click handler: creates `AudioContext`, awaits the pre-fetched session data (or fetches fresh), then calls `initSession()`.
 3. `initSession()` sets audio phase to `"preloading"`, calls `AudioEngine.preload()`, then sets phase to `"ready"`.
 
 #### 4.4.10 `startThrowAnimation(source)`
@@ -370,7 +370,7 @@ Each source frame, one of three 2D drawing functions is called based on `audioPh
 
 | Phase | Function | What it draws |
 |---|---|---|
-| `"locked"` | `drawGateScreen` | Logo + "BEGIN REFINEMENT" button |
+| `"locked"` | `drawGateScreen` | Logo + "START REFINING" button |
 | `"preloading"` | `drawPreloadScreen` | Logo + progress bar + counter |
 | `"ready"` | `drawSourceSurface` | Full refine UI: header, grid cells, bins, status bar |
 
@@ -813,7 +813,7 @@ Node.js script that syncs the crowd-sourced bin assignments from Supabase to Aud
 Mount
   └─ prefetchRef = api.sessionInit("desktop", false)   [speculative, no AudioContext]
 
-User clicks "BEGIN REFINEMENT"
+User clicks "START REFINING"
   └─ handleUnlock()
        ├─ new AudioContext()                           [must be inside user gesture]
        ├─ await prefetchRef (or fresh fetch)
