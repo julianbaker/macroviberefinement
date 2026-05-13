@@ -12,7 +12,7 @@ type Voice = {
 
 const RAMP_IN_SEC = 0.12;
 const RAMP_OUT_SEC = 0.15;
-const MAX_VOICES = 2;
+const MAX_VOICES = 1;
 const PRELOAD_CONCURRENCY = 8;
 
 // First 512 KB → ~30 s of real audio at 128 kbps MP3.

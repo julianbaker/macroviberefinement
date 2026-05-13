@@ -89,7 +89,7 @@ body {
   display: grid;
   grid-template-rows: 3.5rem minmax(0, 1fr) 5.1rem 2.35rem;
   overflow: hidden;
-  filter: brightness(1.54) contrast(1.05) saturate(1.09);
+  filter: brightness(1.82) contrast(1.05) saturate(1.09);
 }
 
 .refine-frame-proxy {
