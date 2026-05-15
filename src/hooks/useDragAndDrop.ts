@@ -29,7 +29,6 @@ type UseDragAndDropParams = {
   binRefs: RefObject<Array<HTMLElement | null>>;
   // Shared refs from useAudioSession
   audioEngineRef: RefObject<AudioEngine | null>;
-  cellsRef: RefObject<Cell[]>;
   sessionTokenRef: RefObject<string | null>;
   hoverStartTimeRef: RefObject<number | null>;
   prevHoverIdRef: RefObject<number | null>;
@@ -59,7 +58,6 @@ export function useDragAndDrop({
   frameRef,
   binRefs,
   audioEngineRef,
-  cellsRef,
   sessionTokenRef,
   hoverStartTimeRef,
   prevHoverIdRef,
@@ -184,8 +182,7 @@ export function useDragAndDrop({
 
       // Fade out audio. Only clear prevHoverIdRef if it still points to this
       // cell — the user may have moved to another cell during the throw.
-      const cell = cellsRef.current[source.cellId];
-      if (cell) audioEngineRef.current?.hoverOut(cell.trackId);
+      audioEngineRef.current?.hoverOut(source.trackId);
       if (prevHoverIdRef.current === source.cellId) prevHoverIdRef.current = null;
 
       // ── Async API placement ───────────────────────────────────────────────
@@ -195,9 +192,9 @@ export function useDragAndDrop({
         hoverStartTimeRef.current != null ? clientTs - hoverStartTimeRef.current : undefined;
       hoverStartTimeRef.current = null;
 
-      if (token && cell) {
+      if (token) {
         api
-          .submitPlacement({ sessionToken: token, trackId: cell.trackId, binCode, clientTs, latencyMs })
+          .submitPlacement({ sessionToken: token, trackId: source.trackId, binCode, clientTs, latencyMs })
           .then((result) => {
             if (!result.ok && result.error.code !== "DUPLICATE_PLACEMENT") {
               // API rejected — unseal and surface the error.
@@ -213,7 +210,7 @@ export function useDragAndDrop({
     };
 
     requestAnimationFrame(run);
-  }, [audioEngineRef, binRefs, cellsRef, hoverStartTimeRef, prevHoverIdRef, sessionTokenRef]);
+  }, [audioEngineRef, binRefs, hoverStartTimeRef, prevHoverIdRef, sessionTokenRef]);
 
   // ── Global pointer listeners during active drag ─────────────────────────────
   const isDragging = dragState !== null;
@@ -346,6 +343,7 @@ export function useDragAndDrop({
 
       setDragState({
         cellId: cell.index,
+        trackId: cell.trackId,
         code: cell.code,
         x: originX,
         y: originY,

@@ -809,11 +809,6 @@ body {
     height: 100%;
   }
 
-  .frame-bins {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-rows: minmax(2.9rem, auto);
-  }
-
   .frame-status {
     gap: 0.35rem;
     flex-wrap: wrap;

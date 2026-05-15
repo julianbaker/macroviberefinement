@@ -31,6 +31,7 @@ export type CellNode = CellLayout & {
 
 export type DragState = {
   cellId: number;
+  trackId: string;
   code: string;
   x: number;
   y: number;

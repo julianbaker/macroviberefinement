@@ -50,7 +50,7 @@ export function App() {
     cells, setCells,
     audioPhase, preloadProgress, bgLoad,
     handleUnlock, initSession,
-    audioEngineRef, hoverStartTimeRef, prevHoverIdRef, sessionTokenRef, cellsRef,
+    audioEngineRef, hoverStartTimeRef, prevHoverIdRef, sessionTokenRef,
   } = useAudioSession({
     onWillReset: () => {
       // Calling through refs means we always invoke the real reset functions,
@@ -93,7 +93,6 @@ export function App() {
     frameRef,
     binRefs,
     audioEngineRef,
-    cellsRef,
     sessionTokenRef,
     hoverStartTimeRef,
     prevHoverIdRef,
@@ -328,7 +327,8 @@ export function App() {
                         const engine = audioEngineRef.current;
                         const prev = prevHoverIdRef.current;
                         if (prev !== null && prev !== cell.index) {
-                          engine?.hoverOut(cellsRef.current[prev]?.trackId ?? `track-${prev + 1}`);
+                          const prevCell = cellById[prev];
+                          if (prevCell) engine?.hoverOut(prevCell.trackId);
                         }
                         engine?.hoverIn(cell.trackId);
                         prevHoverIdRef.current = cell.index;
