@@ -18,6 +18,7 @@ import { sdk } from "@audius/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 const BIN_CODES = ["VELLUM", "BRINE", "HEAT", "STATIC", "HALO", "GRIT"];
+const AUDIUS_APP_NAME_QUERY = "MacroVibe+Refinement";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,10 @@ const audiusSdk = sdk({
   apiSecret: config.audiusApiSecret,
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function logEvent(name, payload = {}) {
   console.log(JSON.stringify({ event: name, ts: new Date().toISOString(), ...payload }));
 }
@@ -64,8 +69,14 @@ async function withRetry(label, fn, { maxRetries = 3, baseDelayMs = 2000 } = {})
       lastErr = err;
       if (attempt < maxRetries) {
         const delay = baseDelayMs * 2 ** attempt;
-        logEvent("audius_op_retry", { label, attempt: attempt + 1, maxRetries, delayMs: delay, error: err.message });
-        await new Promise((r) => setTimeout(r, delay));
+        logEvent("audius_op_retry", {
+          label,
+          attempt: attempt + 1,
+          maxRetries,
+          delayMs: delay,
+          error: getErrorMessage(err),
+        });
+        await sleep(delay);
       }
     }
   }
@@ -77,6 +88,11 @@ function getErrorMessage(err) {
   if (typeof err === "string") return err;
   if (err.message) return err.message;
   return JSON.stringify(err);
+}
+
+function isWriteConfirmationError(err) {
+  const message = getErrorMessage(err).toLowerCase();
+  return message.includes("could not confirm write") || message.includes("confirm write");
 }
 
 function valueAsBoolean(value) {
@@ -234,7 +250,7 @@ async function ensureTrackEngagement(trackIds) {
     }
 
     if (attemptedSocialAction) {
-      await new Promise((r) => setTimeout(r, 120));
+      await sleep(120);
     }
   }
 
@@ -270,7 +286,7 @@ async function loadFollowMap(artistUserIds) {
 
 async function fetchTrackSnapshot(trackId) {
   const resp = await fetch(
-    `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=MacroVibe+Refinement`,
+    `https://api.audius.co/v1/tracks/${encodeURIComponent(trackId)}?app_name=${AUDIUS_APP_NAME_QUERY}`,
     { headers: { "X-API-KEY": config.audiusApiKey } }
   );
   if (resp.status === 404) return { status: "missing" };
@@ -288,6 +304,92 @@ async function fetchTrackSnapshot(trackId) {
     };
   }
   return { status: "ok", track };
+}
+
+function playlistContentTrackId(entry) {
+  const trackId = entry?.track_id ?? entry?.trackId ?? entry?.track?.id;
+  if (trackId === undefined || trackId === null || trackId === "") return null;
+  return String(trackId);
+}
+
+async function fetchPlaylistContents(playlistId) {
+  const resp = await fetch(
+    `https://api.audius.co/v1/playlists/${encodeURIComponent(playlistId)}?app_name=${AUDIUS_APP_NAME_QUERY}`,
+    { headers: { "X-API-KEY": config.audiusApiKey } }
+  );
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching playlist ${playlistId}`);
+  const json = await resp.json();
+  const playlist = Array.isArray(json?.data) ? json.data[0] : json?.data;
+  return playlist?.playlist_contents ?? [];
+}
+
+async function confirmTrackInPlaylist(playlistId, trackId, label, { maxChecks = 4, delayMs = 5000 } = {}) {
+  const expectedTrackId = String(trackId);
+  for (let check = 1; check <= maxChecks; check++) {
+    try {
+      const contents = await fetchPlaylistContents(playlistId);
+      if (contents.some((entry) => playlistContentTrackId(entry) === expectedTrackId)) {
+        logEvent("audius_playlist_add_confirmed", { label, trackId, playlistId, check });
+        return true;
+      }
+    } catch (err) {
+      logEvent("audius_playlist_add_confirm_check_fail", {
+        label,
+        trackId,
+        playlistId,
+        check,
+        error: getErrorMessage(err),
+      });
+    }
+
+    if (check < maxChecks) await sleep(delayMs);
+  }
+
+  return false;
+}
+
+async function addTrackToPlaylistWithConfirmation(playlistId, trackId, label, { maxRetries = 3, baseDelayMs = 2000 } = {}) {
+  let lastErr;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await audiusSdk.playlists.addTrackToPlaylist({
+        userId: config.audiusManagedUserId,
+        playlistId,
+        trackId,
+      });
+      return;
+    } catch (err) {
+      lastErr = err;
+
+      const addedDespiteError = await confirmTrackInPlaylist(playlistId, trackId, label);
+      if (addedDespiteError) {
+        logEvent("audius_playlist_add_accepted_after_error", {
+          label,
+          trackId,
+          playlistId,
+          error: getErrorMessage(err),
+          writeConfirmationTimeout: isWriteConfirmationError(err),
+        });
+        return;
+      }
+
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * 2 ** attempt;
+        logEvent("audius_op_retry", {
+          label,
+          attempt: attempt + 1,
+          maxRetries,
+          delayMs: delay,
+          error: getErrorMessage(err),
+          writeConfirmationTimeout: isWriteConfirmationError(err),
+        });
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastErr;
 }
 
 async function resolveTrackArtistUserId(trackId, trackArtistMap) {
@@ -375,7 +477,7 @@ async function ensureArtistFollows(trackIds, trackArtistMap) {
     }
 
     if (attemptedFollow) {
-      await new Promise((r) => setTimeout(r, 120));
+      await sleep(120);
     }
   }
 
@@ -503,10 +605,10 @@ async function runSync() {
           logEvent("audius_track_status_unknown", { trackId, error: snapshot.error ?? "unknown" });
         }
       } catch (err) {
-        logEvent("audius_track_status_unknown", { trackId, error: err.message });
+        logEvent("audius_track_status_unknown", { trackId, error: getErrorMessage(err) });
       }
       // 150 ms pause keeps us well under the rate limit across 100+ tracks
-      await new Promise((r) => setTimeout(r, 150));
+      await sleep(150);
     }
 
     // Pull ineligible tracks out of desired so the diff sends them to toRemove.
@@ -573,10 +675,10 @@ async function runSync() {
     // because we read playlist_contents from the playlist object (not the filtered /tracks endpoint).
     const evictByBin = new Map(); // binCode -> Set<trackId>
     for (const { trackId, binCode } of toRemove) {
-      (evictByBin.get(binCode) ?? evictByBin.set(binCode, new Set()).get(binCode)).add(trackId);
+      (evictByBin.get(binCode) ?? evictByBin.set(binCode, new Set()).get(binCode)).add(String(trackId));
     }
     for (const { trackId, oldBinCode } of toMove) {
-      (evictByBin.get(oldBinCode) ?? evictByBin.set(oldBinCode, new Set()).get(oldBinCode)).add(trackId);
+      (evictByBin.get(oldBinCode) ?? evictByBin.set(oldBinCode, new Set()).get(oldBinCode)).add(String(trackId));
     }
 
     const successfullyEvicted = new Set(); // trackIds confirmed evicted on Audius
@@ -586,18 +688,13 @@ async function runSync() {
       if (!playlistId) continue;
       try {
         // Fetch raw playlist_contents — includes deleted tracks invisible to /tracks endpoint
-        const resp = await fetch(
-          `https://api.audius.co/v1/playlists/${playlistId}?app_name=MacroVibe+Refinement`,
-          { headers: { "X-API-KEY": config.audiusApiKey } }
-        );
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching playlist ${playlistId}`);
-        const json = await resp.json();
-        const rawContents = json?.data?.[0]?.playlist_contents ?? [];
+        const rawContents = await fetchPlaylistContents(playlistId);
 
         // Filter out all occurrences of the tracks being evicted
         const newContents = rawContents
-          .filter((e) => !trackIds.has(e.track_id))
-          .map((e) => ({ timestamp: e.timestamp, trackId: e.track_id }));
+          .map((entry) => ({ entry, trackId: playlistContentTrackId(entry) }))
+          .filter(({ trackId }) => trackId && !trackIds.has(trackId))
+          .map(({ entry, trackId }) => ({ timestamp: entry.timestamp, trackId }));
 
         await withRetry(`updatePlaylist:${binCode}`, () =>
           audiusSdk.playlists.updatePlaylist({
@@ -610,14 +707,14 @@ async function runSync() {
         for (const trackId of trackIds) successfullyEvicted.add(trackId);
         logEvent("audius_playlist_evicted", { binCode, count: trackIds.size, newSize: newContents.length });
       } catch (err) {
-        logEvent("audius_playlist_evict_fail", { binCode, error: err.message });
+        logEvent("audius_playlist_evict_fail", { binCode, error: getErrorMessage(err) });
         failedOps += trackIds.size;
       }
     }
 
     // Update Supabase for pure removals that succeeded on Audius
     for (const { trackId, binCode } of toRemove) {
-      if (successfullyEvicted.has(trackId)) {
+      if (successfullyEvicted.has(String(trackId))) {
         await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
         publishedFinal.delete(trackId);
         tracksRemoved++;
@@ -626,7 +723,7 @@ async function runSync() {
 
     // Moves-in: add to new playlist for tracks that were successfully evicted from the old one
     for (const { trackId, oldBinCode, newBinCode } of toMove) {
-      if (!successfullyEvicted.has(trackId)) {
+      if (!successfullyEvicted.has(String(trackId))) {
         logEvent("audius_track_move_skip", { trackId, reason: "eviction_failed", oldBinCode, newBinCode });
         failedOps++;
         continue;
@@ -634,13 +731,7 @@ async function runSync() {
       const newPlaylistId = playlistMap[newBinCode];
       if (!newPlaylistId) continue;
       try {
-        await withRetry(`move-add:${trackId}`, () =>
-          audiusSdk.playlists.addTrackToPlaylist({
-            userId: config.audiusManagedUserId,
-            playlistId: newPlaylistId,
-            trackId,
-          })
-        );
+        await addTrackToPlaylistWithConfirmation(newPlaylistId, trackId, `move-add:${trackId}`);
         await supabase.from("audius_published_tracks").upsert({
           track_id: trackId,
           bin_code: newBinCode,
@@ -652,7 +743,7 @@ async function runSync() {
         // Eviction succeeded but add failed — clear published record so next run retries the add
         await supabase.from("audius_published_tracks").delete().eq("track_id", trackId);
         publishedFinal.delete(trackId);
-        logEvent("audius_track_add_fail", { trackId, binCode: newBinCode, error: err.message });
+        logEvent("audius_track_add_fail", { trackId, binCode: newBinCode, error: getErrorMessage(err) });
         failedOps++;
       }
     }
@@ -662,13 +753,7 @@ async function runSync() {
       const playlistId = playlistMap[binCode];
       if (!playlistId) continue;
       try {
-        await withRetry(`add:${trackId}`, () =>
-          audiusSdk.playlists.addTrackToPlaylist({
-            userId: config.audiusManagedUserId,
-            playlistId,
-            trackId,
-          })
-        );
+        await addTrackToPlaylistWithConfirmation(playlistId, trackId, `add:${trackId}`);
         await supabase.from("audius_published_tracks").upsert({
           track_id: trackId,
           bin_code: binCode,
@@ -677,7 +762,7 @@ async function runSync() {
         publishedFinal.set(trackId, binCode);
         tracksAdded++;
       } catch (err) {
-        logEvent("audius_track_add_fail", { trackId, binCode, error: err.message });
+        logEvent("audius_track_add_fail", { trackId, binCode, error: getErrorMessage(err) });
         failedOps++;
       }
     }
@@ -740,11 +825,11 @@ async function runSync() {
       tracks_removed: tracksRemoved,
       tracks_moved: tracksMoved,
       error_code: "SYNC_FAILED",
-      error_message: err.message,
+      error_message: getErrorMessage(err),
       metadata: { failedOps, tracksFavorited, tracksReposted, artistsFollowed },
     });
 
-    logEvent("audius_sync_error", { error: err.message });
+    logEvent("audius_sync_error", { error: getErrorMessage(err) });
     process.exit(1);
   }
 }
